@@ -92,6 +92,39 @@ export type SessionSnapshot = {
   citations: Citation[] | JsonValue;
   workflowId: string;
   version: number;
+  updatedAt?: string;
+  expectedUpdatedAt?: string;
+  awaitingChecker?: boolean;
+  requestId?: string;
+};
+
+export type InboxItem = {
+  sessionId: string;
+  accountId: string;
+  securityId: string;
+  bookQty: number;
+  custodianQty: number;
+  delta: number;
+  asOf: string;
+  status: string;
+  awaitingChecker: boolean;
+  createdAt: string;
+  workflowSlug: string;
+};
+
+export type InboxResponse = {
+  items: InboxItem[];
+};
+
+export type SessionReplay = {
+  workflowId: string;
+  version: number;
+  slug: string;
+  stripped: JsonValue;
+  citations: Citation[] | JsonValue;
+  accumulatedAnswers: JsonObject;
+  derived: JsonObject;
+  createdAt: string;
 };
 
 export type ExceptionEvent = {
@@ -115,6 +148,7 @@ export type PreviewRequest = {
 
 export type AdvanceRequest = {
   inputs: { [questionId: string]: JsonValue };
+  expectedUpdatedAt?: string;
 };
 
 export type AdminWorkflow = {
@@ -141,7 +175,28 @@ export type AuditEvent = {
   actor?: string;
   nodeId?: string;
   questionId?: string;
+  sessionId?: string;
+  accountId?: string;
   detail?: JsonValue;
   payload?: JsonValue;
   [key: string]: JsonValue | undefined;
+};
+
+export type AuditQuery = {
+  accountId?: string;
+  eventType?: string;
+  sessionId?: string;
+};
+
+export type LintIssue = {
+  severity?: string;
+  message?: string;
+  nodeId?: string;
+  edgeIndex?: number;
+};
+
+export type LintResult = {
+  valid?: boolean;
+  errors: string[];
+  warnings: string[];
 };

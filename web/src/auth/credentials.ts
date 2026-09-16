@@ -26,7 +26,7 @@ function demoCredentials(): Credentials {
     typeof import.meta.env.VITE_DEMO_ADMIN_JWT === 'string' ? import.meta.env.VITE_DEMO_ADMIN_JWT.trim() : '';
   return {
     apiKey: envKey || DEMO_RUNTIME_KEY,
-    jwt: envJwt || DEMO_ADMIN_JWT,
+    jwt: envJwt,
   };
 }
 
@@ -62,9 +62,7 @@ export function ensureDemoCredentials(): Credentials {
     const stored = readStored();
     const next = fillGaps(stored);
     const needsWrite =
-      stored === null ||
-      (typeof stored.apiKey !== 'string' || !stored.apiKey.trim()) ||
-      (typeof stored.jwt !== 'string' || !stored.jwt.trim());
+      stored === null || typeof stored.apiKey !== 'string' || !stored.apiKey.trim();
     if (needsWrite) persist(next);
     return next;
   } catch {

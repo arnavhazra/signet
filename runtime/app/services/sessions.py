@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -7,8 +8,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.dag import SessionState
 from app.models.entities import AuditEvent, Workflow, WorkflowSession, utcnow
+from app.org import CHECKER_NODE_ID, DEMO_ORG_ID
 from app.schemas.api import AppError
 from app.wizard.strip import strip_bindings
+
+
+def iso_z(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.isoformat(timespec="microseconds") + "Z"
+
+
+def parse_iso(value: str) -> datetime:
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1]
+    return datetime.fromisoformat(text)
 
 
 def orm_to_state(row: WorkflowSession) -> SessionState:
@@ -23,6 +40,8 @@ def orm_to_state(row: WorkflowSession) -> SessionState:
         history=list(row.history or []),
         status=row.status,  # type: ignore[arg-type]
         error=row.error,
+        lock_version=int(row.lock_version or 0),
+        updated_at=row.updated_at or utcnow(),
     )
 
 
@@ -34,14 +53,44 @@ def apply_state(row: WorkflowSession, state: SessionState) -> None:
     row.history = state.history
     row.status = state.status
     row.error = state.error
+    row.lock_version = int(row.lock_version or 0) + 1
     row.updated_at = utcnow()
 
 
-async def write_audit(db: AsyncSession, session_id: UUID, event_type: str, payload: dict[str, Any]) -> AuditEvent:
-    event = AuditEvent(session_id=session_id, event_type=event_type, payload=payload)
+async def write_audit(
+    db: AsyncSession,
+    session_id: UUID,
+    event_type: str,
+    payload: dict[str, Any],
+    *,
+    actor: str | None = None,
+    org_id: str = DEMO_ORG_ID,
+) -> AuditEvent:
+    body = dict(payload)
+    if actor and "actor" not in body:
+        body["actor"] = actor
+    event = AuditEvent(
+        session_id=session_id,
+        event_type=event_type,
+        payload=body,
+        actor=actor,
+        org_id=org_id,
+    )
     db.add(event)
     await db.flush()
     return event
+
+
+def is_checker_node(node_id: str | None) -> bool:
+    return node_id == CHECKER_NODE_ID or (node_id or "").startswith("checker")
+
+
+def inbox_status(row: WorkflowSession) -> str:
+    if row.status in {"completed", "failed"}:
+        return "done"
+    if is_checker_node(row.current_node_id):
+        return "awaiting_checker"
+    return "open"
 
 
 def current_node_payload(state: SessionState, workflow: Workflow) -> dict[str, Any] | None:
@@ -95,7 +144,7 @@ def _public_ui_config(config: dict[str, Any], state: SessionState) -> dict[str, 
     return public
 
 
-def snapshot(state: SessionState, workflow: Workflow) -> dict[str, Any]:
+def snapshot(state: SessionState, workflow: Workflow, row: WorkflowSession | None = None) -> dict[str, Any]:
     node = current_node_payload(state, workflow)
     citations = []
     for item in state.citations:
@@ -106,6 +155,8 @@ def snapshot(state: SessionState, workflow: Workflow) -> dict[str, Any]:
                 "asOf": item.get("asOf"),
             }
         )
+    awaiting = is_checker_node(state.current_node_id) and state.status == "awaiting_input"
+    updated = iso_z(row.updated_at if row is not None else state.updated_at)
     return strip_bindings(
         {
             "sessionId": state.session_id,
@@ -116,12 +167,15 @@ def snapshot(state: SessionState, workflow: Workflow) -> dict[str, Any]:
             "citations": citations,
             "workflowId": str(workflow.id),
             "version": workflow.version,
+            "updatedAt": updated,
+            "awaitingChecker": awaiting,
+            "orgId": (row.org_id if row is not None else DEMO_ORG_ID),
         }
     )
 
 
-async def get_session(db: AsyncSession, session_id: UUID) -> WorkflowSession:
+async def get_session(db: AsyncSession, session_id: UUID, org_id: str = DEMO_ORG_ID) -> WorkflowSession:
     row = await db.get(WorkflowSession, session_id)
-    if not row:
+    if not row or row.org_id != org_id:
         raise AppError("Session not found", status_code=404, error="NOT_FOUND")
     return row

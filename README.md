@@ -1,100 +1,111 @@
 # Signet
 
-Governed HITL workflow kernel — a sealed audit stamp, not a chatbot. This is **not Addison**. Addison is conversational Q&A over portfolios. This repo is the **governed action layer** an Addison-class agent would call: event in, versioned DAG, server-driven approval form, permissioned write, audit + traces.
+Signet is a **human-in-the-loop (HITL) workflow kernel**: versioned DAGs, server-driven UI (SDUI), and audit-first tools. An exception event starts a durable session; logic nodes run on the server; UI nodes halt for a human; the only writes go through an allowlisted tool gateway that inserts an audit row before any remediation. It is not a chatbot.
 
-**Read this first (interview):** [`docs/interview-briefing.md`](docs/interview-briefing.md) — thesis, Addepar mapping, ThisVersus/ivt-mvp honesty, click-by-click demo, threat model, JD map, questions, what not to say.
+Live console: inbox, maker-checker decision, replay, auditor, admin. Synthetic book-vs-custodian data only.
 
-Also: [`docs/demo-script.md`](docs/demo-script.md) (live timing), [`docs/addepar-mapping.md`](docs/addepar-mapping.md) (file-level JD table), [`runtime/README.md`](runtime/README.md) (kernel), [`web/README.md`](web/README.md) (SDUI client), [`infra/README.md`](infra/README.md) (kind / Terraform).
+Repo: [github.com/arnavhazra/signet](https://github.com/arnavhazra/signet)
 
-There is **no production web deploy** for this workspace (no Vercel project). The hiring-manager path is local.
+## Architecture
 
-## Demo loop (hiring-manager path)
+Hobby deploy is **same origin**: Vite SPA + FastAPI on Vercel. Postgres is hosted Supabase. There is no Redis or NATS in production. Ingest inserts an `exception_events` outbox row and runs the DAG in the same request.
 
-Requires **Python 3.12**, a hosted **Supabase Postgres** project, and **Node 22** for the UI. **No Docker Desktop.** Redis and NATS stay in-process when localhost is unreachable.
-
-### 1. Point the runtime at Supabase
-
-Create or reuse a Supabase project. Copy env and set the **session-mode pooler** URL SQLAlchemy expects (`postgresql+asyncpg://…@aws-0-<region>.pooler.supabase.com:5432/postgres`). Never commit `.env`.
-
-```bash
-cd runtime
-python3.12 -m venv .venv
-source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env          # then set DATABASE_URL to the pooled asyncpg URI
-alembic upgrade head          # no-op if schema was already applied on the project
-python -m app.seed            # prints API_KEY + ADMIN_JWT; slug=exception-review
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+Browser
+  └─ Vercel Hobby (same origin)
+        ├─ static SPA (web/)
+        └─ rewrite /v1 /health /ready /admin /openapi.json → FastAPI (api/index.py → runtime/)
+              ├─ DagEngine (stateless; sessions in Postgres)
+              ├─ ToolGateway (allowlist; audit row before side effect)
+              ├─ exception_events outbox
+              └─ Supabase Postgres (workflows, sessions, audit_events, remediations)
 ```
 
-Do **not** set `TESTING=1` for this path — that switches the API to SQLite. Leave `OTEL_EXPORTER_OTLP_ENDPOINT` empty unless a collector is running.
+| Layer | Role |
+| --- | --- |
+| `web/` | SDUI renderer. Paints artifact payloads and posts answers. Does not compute deltas or evaluate bindings. |
+| `runtime/` | FastAPI kernel: DAG, wizard contract, tools, auth, audit. |
+| `api/index.py` | Vercel Python entry that imports the FastAPI app. |
+| `infra/` | Optional Kubernetes / Terraform envelope. Not the live path. |
 
-Synthetic fixture: account **A-100**, security **US0378331005**.
+## Security
 
-### 2. Web (Vite `:5173`)
+- **Stripped bindings.** Admin definitions may contain `binding` (`filter_value`, `filter_bracket`, `query_token`). `GET /v1/workflows/{slug}/active`, session snapshots, and replay payloads run through `strip_bindings`. The browser is a renderer; rules stay on the server.
+- **Audit-first tools.** Clients cannot name tools. The DAG names an allowlisted `toolName`. Unknown tools are denied, audited, and produce no side effect. `remediations.audit_event_id` is a required FK.
+- **Roles.** `operator`, `checker`, `admin`, `auditor`. Auditor is GET-only (inbox, session, audit, replay). Operator/checker may ingest and advance. Admin owns catalog, preview, publish. Runtime API keys cannot publish.
+- **Auth.** `X-API-Key` on `/v1/*` for tests and local clients. Demo mode (`DEMO_MODE=1`) issues an HttpOnly `signet_demo` cookie via `GET /v1/auth/demo`. Subsequent `/v1` and `/admin` accept cookie, Bearer JWT, or API key. Rate-limit ingest and advance by IP (and by key when present).
+- **RLS and tenancy.** Rows carry `org_id` (demo org constant). Postgres RLS scopes sessions, audit, remediations, and events to the caller’s org. Demo data is a single org.
 
-```bash
-cd web
-npm install
-npm run dev                   # http://127.0.0.1:5173
-```
+Every response includes `X-Request-Id` (echo incoming or generate).
 
-Vite proxies `/v1`, `/health`, `/ready`, and `/admin/workflows` to the API, so the browser does not depend on CORS. The demo runtime key (`demo-runtime-key`) and a demo admin JWT are **preloaded** — do not open **Swap keys** for the hiring-manager path.
+## Console
 
-Then: `/` → **Inject mismatch** → **Accept adjustment** → read the plain-English audit trail. `/admin` loads the catalog without pasting a token.
+| Path | Screen |
+| --- | --- |
+| `/` | Inbox — account, CUSIP, book, custodian, server-derived delta, age, status (`open` / `awaiting_checker` / `done`) |
+| `/sessions/:id` | Decision — SDUI card. Accept / reject / request more data. High `\|delta\|` requires a second checker approval. |
+| `/sessions/:id/replay` | Immutable `workflowId` + `version`, stripped contract vs stored citations |
+| `/audit` | Read-only search by account / session / event type |
+| `/admin` | Catalog, lint on preview/publish, stripped contract fetch |
 
-`VITE_API_URL` is baked at build time for the Nginx image. Leave it unset for local Vite (proxy). Use `http://localhost:8000` for kind **port-forward**. `http://api:8000` is in-cluster DNS only — the browser cannot call it.
+Seeded workflows: `exception-review` (maker-checker on large deltas) and `nav-signoff` (numeric override then approval). Same kernel, different definition JSON.
 
-### 3. Same loop with curl
+## HTTP API
 
-```bash
-export API_KEY=demo-runtime-key   # or the value printed by seed
+Interactive spec: `/openapi.json` (FastAPI `/docs` when served).
 
-curl -s localhost:8000/health
-curl -s localhost:8000/ready      # {status, checks: {postgres, redis, nats}}
-# postgres must be true against Supabase. redis/nats are true in-process without Docker.
+| Method | Path | Auth | Notes |
+| --- | --- | --- | --- |
+| `GET` | `/health` | none | `{status: ok}` |
+| `GET` | `/ready` | none | 200 when Postgres is reachable |
+| `GET` | `/v1/auth/demo` | none (`DEMO_MODE=1`) | Sets HttpOnly `signet_demo` operator cookie |
+| `GET` | `/v1/inbox` | operator / checker / auditor / API key | `{ items: [{ sessionId, accountId, securityId, bookQty, custodianQty, delta, asOf, status, awaitingChecker, createdAt, workflowSlug }] }` — open and `awaiting_checker` first |
+| `POST` | `/v1/events/exceptions` | operator / checker / API key | Ingest. Optional `Idempotency-Key`. Unique `(org_id, source)`. Replay of the same event returns the existing session `200`. Auditor `403`. |
+| `GET` | `/v1/sessions/{id}` | operator / checker / auditor / API key | Session snapshot; bindings stripped |
+| `POST` | `/v1/sessions/{id}/advance` | operator / checker / API key | Body `{ inputs, expectedUpdatedAt? }`. Stale version → `409 { error: CONFLICT }`. Auditor `403`. |
+| `GET` | `/v1/sessions/{id}/audit` | operator / checker / auditor / API key | `{ events }` |
+| `GET` | `/v1/sessions/{id}/replay` | operator / checker / auditor / API key | `{ workflowId, version, slug, stripped, citations, accumulatedAnswers, derived, createdAt }` |
+| `GET` | `/v1/audit` | operator / checker / auditor / API key | Query `accountId`, `eventType`, `sessionId` → `{ events }` |
+| `GET` | `/v1/workflows/{slug}/active` | API key / cookie / JWT | Public wizard contract; no `binding` keys |
+| `GET` `POST` | `/admin/workflows` | admin | List / create |
+| `GET` | `/admin/workflows/{id}` | admin | Full definition (bindings may be present) |
+| `POST` | `/admin/workflows/{id}/preview` | admin | Dry-run `{filters, derived}` plus linter issues |
+| `POST` | `/admin/workflows/{id}/publish` | admin | Immutable version; previous published row archived |
 
-curl -s -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"accountId":"A-100","securityId":"US0378331005","bookQty":150,"custodianQty":120,"asOf":"2026-09-14","source":"synthetic-fixture"}' \
-  localhost:8000/v1/events/exceptions
-# status: awaiting_input, currentNode.artifactType: approval_card, derived.delta: 30
-
-SID=<sessionId>
-curl -s -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"inputs":{"decision":"accept_adjustment"}}' \
-  localhost:8000/v1/sessions/$SID/advance
-# status: completed
-
-curl -s -H "X-API-Key: $API_KEY" localhost:8000/v1/sessions/$SID/audit
-# {events: [...]}  look for tool.invoked + remediation.written
-```
-
-Auth: `X-API-Key` on `/v1/*`; `Authorization: Bearer` JWT (`role=admin`) on `/admin/*`.
+Lint rejects cycles and tool nodes missing `toolName` before publish.
 
 ## Tests
 
 ```bash
-cd runtime && pytest -q          # SQLite in-memory, no network
+cd runtime && pytest -q          # SQLite in-memory; no network
 ```
 
-`TESTING=1` + SQLite is for unit tests only, not the hiring-manager envelope.
+Kernel coverage: halt/resume, reject, more-data, maker-checker, second workflow, bindings stripped on active + snapshots, idempotent ingest, concurrent advance `409`, tool deny `403`, lint (cycles, missing `toolName`), auditor cannot POST ingest/advance, auth and rate limit.
 
-## Appendix: Docker Compose / kind (optional)
+```bash
+cd web && npx playwright test    # inbox → maker-checker → audit → replay
+```
 
-Docker Desktop is **not** required for the demo. Use this only if you want local Postgres/Redis/NATS/OTel instead of Supabase + in-process adapters.
+Playwright hits a preview or production URL (or local same-origin). `TESTING=1` is for unit tests only; do not set it against Supabase.
+
+## Deploy
+
+1. Vercel Hobby project, production from `main`. SPA build from `web/`; Python function from `api/index.py`. `vercel.json` rewrites `/v1/*`, `/health`, `/ready`, `/admin/*`, `/openapi.json` to the function; everything else is the Vite build.
+2. Env (never in git): `DATABASE_URL` (Supabase **session** pooler, `postgresql+asyncpg://…:5432/postgres`), `JWT_SECRET`, `API_KEYS`, `DEMO_MODE=1`, `CORS_ORIGINS` = the Vercel origin. Leave Deployment Protection off for the public demo.
+3. `alembic upgrade head` against that database from `runtime/`.
+4. One-shot seed from your machine (`python -m app.seed` or a private admin seed route). Do not expose a public button that re-seeds thousands of rows.
+
+Local same-origin substitute:
 
 ```bash
 cd runtime
-docker compose up -d          # Postgres 16, Redis 7, NATS JetStream, OTel collector
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # DATABASE_URL = session-mode pooler URI
+alembic upgrade head && python -m app.seed
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+cd web && npm install && npm run dev   # http://127.0.0.1:5173, proxies /v1 and /admin
 ```
 
-Then set `DATABASE_URL=postgresql+asyncpg://hitl:hitl@localhost:5432/hitl` and `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`.
-
-kind / Terraform: [`infra/README.md`](infra/README.md). Images match the Dockerfiles: `hitl-runtime-api:dev` (`runtime/Dockerfile`), `hitl-runtime-web:dev` (`web/Dockerfile`). Port-forward **3000** and **8000**; keep `VITE_API_URL=http://localhost:8000`.
-
-Nginx image (port **3000**) for a dockerized UI:
-
-```bash
-docker build --build-arg VITE_API_URL=http://localhost:8000 -t hitl-runtime-web:dev web/
-docker run --rm -p 3000:3000 hitl-runtime-web:dev
-```
+Kernel notes: [`runtime/README.md`](runtime/README.md). Client notes: [`web/README.md`](web/README.md). Optional k8s/Terraform: [`infra/README.md`](infra/README.md).

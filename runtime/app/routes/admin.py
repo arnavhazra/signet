@@ -8,17 +8,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.deps import admin_jwt
 from app.db import get_db
 from app.schemas.api import CreateWorkflowBody, PreviewBody
+from app.seed import bootstrap
 from app.services import workflows as workflow_service
 
-router = APIRouter(prefix="/admin/workflows", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-@router.get("")
+@router.post("/seed")
+async def seed_demo(
+    request: Request,
+    _admin: dict = Depends(admin_jwt),
+    db: AsyncSession = Depends(get_db),
+):
+    return await bootstrap(db, request.app.state.cache)
+
+
+@router.get("/workflows")
 async def list_workflows(_admin: dict = Depends(admin_jwt), db: AsyncSession = Depends(get_db)):
     return {"workflows": await workflow_service.list_workflows(db)}
 
 
-@router.post("")
+@router.post("/workflows")
 async def create_workflow(
     body: CreateWorkflowBody,
     _admin: dict = Depends(admin_jwt),
@@ -29,7 +39,7 @@ async def create_workflow(
     return workflow_service.workflow_detail(row)
 
 
-@router.get("/{workflow_id}")
+@router.get("/workflows/{workflow_id}")
 async def get_workflow(
     workflow_id: UUID,
     _admin: dict = Depends(admin_jwt),
@@ -39,7 +49,7 @@ async def get_workflow(
     return workflow_service.workflow_detail(row)
 
 
-@router.post("/{workflow_id}/preview")
+@router.post("/workflows/{workflow_id}/preview")
 async def preview_workflow(
     workflow_id: UUID,
     body: PreviewBody,
@@ -49,7 +59,7 @@ async def preview_workflow(
     return await workflow_service.preview_workflow(db, workflow_id, body.inputs)
 
 
-@router.post("/{workflow_id}/publish")
+@router.post("/workflows/{workflow_id}/publish")
 async def publish_workflow(
     workflow_id: UUID,
     request: Request,

@@ -42,6 +42,7 @@ export default function ApprovalCard({ config, actions, disabled, onSubmit }: Pr
                 type="button"
                 className={`btn ${tone}`}
                 disabled={disabled}
+                data-testid={`action-${String(actionValue(action, index))}`}
                 onClick={() => onSubmit(actionValue(action, index))}
               >
                 {actionLabel(action, index)}

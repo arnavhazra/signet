@@ -32,6 +32,7 @@ class SessionState:
     history: list[str] = field(default_factory=list)
     status: SessionStatus = "created"
     error: str | None = None
+    lock_version: int = 0
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -197,5 +198,6 @@ def _build(
         history=history,
         status=status,
         error=None,
+        lock_version=base.lock_version,
         updated_at=datetime.now(timezone.utc),
     )

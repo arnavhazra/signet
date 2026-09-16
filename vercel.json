@@ -1,0 +1,26 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm --prefix web ci && npm --prefix web run build",
+  "outputDirectory": "web/dist",
+  "installCommand": "npm --prefix web ci",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 30,
+      "includeFiles": "runtime/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/v1/:path*", "destination": "/api/index" },
+    { "source": "/health", "destination": "/api/index" },
+    { "source": "/ready", "destination": "/api/index" },
+    { "source": "/admin/:path*", "destination": "/api/index" },
+    { "source": "/openapi.json", "destination": "/api/index" },
+    { "source": "/docs", "destination": "/api/index" },
+    { "source": "/docs/:path*", "destination": "/api/index" },
+    { "source": "/redoc", "destination": "/api/index" },
+    { "source": "/sessions/:path*", "destination": "/index.html" },
+    { "source": "/audit", "destination": "/index.html" },
+    { "source": "/admin", "destination": "/index.html" }
+  ]
+}

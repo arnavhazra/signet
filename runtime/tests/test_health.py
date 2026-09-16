@@ -10,8 +10,8 @@ async def test_ready(client):
     body = response.json()
     assert body["status"] == "ok"
     assert body["checks"]["postgres"] is True
-    assert body["checks"]["redis"] is True
-    assert body["checks"]["nats"] is True
+    assert "redis" not in body["checks"]
+    assert "nats" not in body["checks"]
 
 
 async def test_cors_preflight_from_vite(client):
@@ -38,6 +38,12 @@ async def test_cors_preflight_loopback_alt_port(client):
     )
     assert response.status_code in {200, 204}
     assert response.headers.get("access-control-allow-origin") == "http://localhost:5174"
+
+
+async def test_request_id_echo(client):
+    response = await client.get("/health", headers={"X-Request-Id": "hm-trace-1"})
+    assert response.status_code == 200
+    assert response.headers.get("x-request-id") == "hm-trace-1"
 
 
 async def test_missing_api_key(client):

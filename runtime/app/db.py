@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import Settings
 from app.models.base import Base
+from app.org import DEMO_ORG_ID
 
 engine = None
 SessionLocal: async_sessionmaker[AsyncSession] | None = None
@@ -38,10 +40,19 @@ async def dispose_engine() -> None:
         engine = None
 
 
+async def apply_org_guc(session: AsyncSession, org_id: str = DEMO_ORG_ID) -> None:
+    if engine is not None and engine.dialect.name == "postgresql":
+        await session.execute(
+            text("SELECT set_config('app.current_org', :org, true)"),
+            {"org": org_id},
+        )
+
+
 async def get_db() -> AsyncIterator[AsyncSession]:
     assert SessionLocal is not None
     async with SessionLocal() as session:
         try:
+            await apply_org_guc(session)
             yield session
             await session.commit()
         except Exception:

@@ -1,0 +1,8 @@
+{
+  "name": "signet",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix web ci && npm --prefix web run build",
+    "test:e2e": "npm --prefix web exec -- playwright test"
+  }
+}

@@ -1,18 +1,43 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import Header, Request
 
 from app.config import Settings
+from app.org import DEMO_COOKIE
 from app.schemas.api import AppError
+
+ROLES = frozenset({"admin", "operator", "checker", "auditor", "runtime"})
+MUTATE_ROLES = frozenset({"admin", "operator", "checker", "runtime"})
+
+
+@dataclass
+class Principal:
+    sub: str
+    role: str
+    via: str
+    identity: str
+
+    @property
+    def can_mutate(self) -> bool:
+        return self.role in MUTATE_ROLES
+
+    @property
+    def can_admin(self) -> bool:
+        return self.role == "admin"
 
 
 def decode_jwt(authorization: str | None, settings: Settings) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise AppError("Missing Authorization Bearer token", status_code=401, error="UNAUTHORIZED")
     token = authorization.split(" ", 1)[1].strip()
+    return decode_token(token, settings)
+
+
+def decode_token(token: str, settings: Settings) -> dict:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
     except jwt.ExpiredSignatureError as exc:
@@ -20,7 +45,7 @@ def decode_jwt(authorization: str | None, settings: Settings) -> dict:
     except jwt.PyJWTError as exc:
         raise AppError("Invalid token", status_code=401, error="UNAUTHORIZED") from exc
     role = payload.get("role")
-    if role not in {"admin", "operator"}:
+    if role not in ROLES:
         raise AppError("Invalid role", status_code=403, error="FORBIDDEN")
     return payload
 
@@ -39,28 +64,88 @@ def require_api_key(x_api_key: str | None, settings: Settings) -> str:
     return x_api_key
 
 
-def mint_token(settings: Settings, sub: str, role: str, days: int = 7) -> str:
+def mint_token(settings: Settings, sub: str, role: str, days: int = 7, hours: int | None = None) -> str:
     now = datetime.now(timezone.utc)
+    delta = timedelta(hours=hours) if hours is not None else timedelta(days=days)
     payload = {
         "sub": sub,
         "role": role,
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(days=days)).timestamp()),
+        "exp": int((now + delta).timestamp()),
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
+
+
+def client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _principal_from_payload(payload: dict, via: str) -> Principal:
+    sub = str(payload.get("sub") or "unknown")
+    return Principal(sub=sub, role=str(payload.get("role")), via=via, identity=f"{via}:{sub}")
+
+
+def _from_cookie(request: Request, settings: Settings) -> Principal | None:
+    token = request.cookies.get(DEMO_COOKIE)
+    if not token:
+        return None
+    return _principal_from_payload(decode_token(token, settings), "cookie")
+
+
+def resolve_principal(
+    request: Request,
+    authorization: str | None,
+    x_api_key: str | None,
+) -> Principal:
+    settings: Settings = request.app.state.settings
+    if authorization:
+        return _principal_from_payload(decode_jwt(authorization, settings), "jwt")
+    cookie_principal = _from_cookie(request, settings)
+    if cookie_principal:
+        return cookie_principal
+    key = require_api_key(x_api_key, settings)
+    return Principal(sub="api-key", role="runtime", via="api_key", identity=f"key:{key}")
+
+
+async def current_principal(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> Principal:
+    return resolve_principal(request, authorization, x_api_key)
+
+
+async def mutate_principal(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> Principal:
+    principal = resolve_principal(request, authorization, x_api_key)
+    if not principal.can_mutate:
+        raise AppError("Auditor role is read-only", status_code=403, error="FORBIDDEN")
+    return principal
 
 
 async def admin_jwt(
     request: Request,
     authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict:
-    settings: Settings = request.app.state.settings
-    return require_admin(decode_jwt(authorization, settings))
+    principal = resolve_principal(request, authorization, x_api_key)
+    if not principal.can_admin:
+        raise AppError("admin role required", status_code=403, error="FORBIDDEN")
+    return {"sub": principal.sub, "role": principal.role, "via": principal.via}
 
 
 async def runtime_api_key(
     request: Request,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    authorization: str | None = Header(default=None),
 ) -> str:
-    settings: Settings = request.app.state.settings
-    return require_api_key(x_api_key, settings)
+    principal = resolve_principal(request, authorization, x_api_key)
+    return principal.identity

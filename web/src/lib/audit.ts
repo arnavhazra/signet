@@ -41,6 +41,7 @@ export function explainAudit(event: AuditEvent, index: number): AuditView {
   const kind = auditKind(event, index);
   const payload = payloadObject(event);
   const tool = toolName(event);
+  const actor = stringish(event.actor);
   const when =
     stringish(event.createdAt) ??
     stringish(event.at) ??
@@ -53,51 +54,54 @@ export function explainAudit(event: AuditEvent, index: number): AuditView {
 
   switch (kind) {
     case 'session.created':
-      headline = 'Event ingested';
-      detail = 'The kernel opened a versioned session for this exception.';
+      headline = 'Session opened';
+      detail = 'Exception ingested into a versioned workflow session.';
       break;
     case 'dag.halt':
-      headline = 'DAG halted for a human';
-      detail = 'Logic nodes finished (delta + citations). Execution stopped on the approval card — you are the human in the loop.';
+      headline = 'Waiting on human';
+      detail = 'Server finished logic nodes and halted on the current card.';
+      break;
+    case 'human.decision':
+      headline = actor ? `Decision · ${actor}` : 'Decision recorded';
+      detail = 'Answer stored against this workflow version.';
       break;
     case 'input.received':
-      headline = 'Human decision recorded';
-      detail = 'Your answer was stored against this workflow version. The engine then resumed.';
+      headline = 'Decision recorded';
+      detail = 'Answer stored against this workflow version.';
       break;
     case 'session.advanced':
-      headline = 'Kernel resumed';
-      detail = payload?.status === 'completed'
-        ? 'Post-decision logic finished. Session is complete.'
-        : 'The DAG continued from the halt node.';
+      headline = 'Session advanced';
+      detail =
+        payload?.status === 'completed' ? 'Post-decision logic finished.' : 'DAG resumed from the halt node.';
       break;
     case 'session.completed':
       headline = 'Session completed';
-      detail = 'No further human node. Outcome and audit rows are durable in Postgres.';
+      detail = 'No further human node.';
       break;
     case 'tool.invoked':
-      headline = tool ? `Tool invoked: ${tool}` : 'Tool gateway invoked';
+      headline = tool ? `Tool invoked: ${tool}` : 'Tool invoked';
       detail =
         tool === 'write_remediation'
-          ? 'Allowlisted write. An audit row is inserted before any remediation can persist.'
+          ? 'Allowlisted write. Audit row required before remediation persists.'
           : tool === 'attach_citations'
-            ? 'Server attached book and custodian record citations. The client did not look them up.'
+            ? 'Server attached book and custodian citations.'
             : tool === 'close_exception'
-              ? 'Allowlisted close. No books-side remediation is written on this path.'
-              : 'Allowlisted tool call. Unknown tools are denied and produce no side effect.';
+              ? 'Exception closed. No remediation written.'
+              : 'Allowlisted tool call.';
       break;
     case 'tool.completed':
       headline = tool ? `Tool finished: ${tool}` : 'Tool finished';
-      detail = 'Gateway returned; session derived state was updated on the server.';
+      detail = 'Gateway returned; derived state updated.';
       break;
     case 'tool.denied':
       headline = 'Tool blocked';
-      detail = 'The named tool is not on the allowlist. No side effect was written.';
+      detail = 'Tool is not on the allowlist. No side effect.';
       break;
     case 'remediation.written':
       headline = 'Remediation written';
       detail = payload?.auditEventId
-        ? `Books-side row persisted with a hard FK to audit ${String(payload.auditEventId)}. There is no silent write path.`
-        : 'Books-side row persisted. Remediation rows require an audit event id.';
+        ? `Persisted with audit ${String(payload.auditEventId)}.`
+        : 'Books-side row persisted.';
       break;
     default:
       headline = kind.replace(/[._]/g, ' ');
@@ -108,7 +112,7 @@ export function explainAudit(event: AuditEvent, index: number): AuditView {
     id,
     headline,
     detail,
-    when,
+    when: [when, actor].filter(Boolean).join(' · ') || null,
     rawType: kind,
     rawPayload: event.payload ?? event.detail,
   };

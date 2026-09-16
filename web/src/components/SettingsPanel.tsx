@@ -37,9 +37,7 @@ export default function SettingsPanel({ open, onClose }: Props) {
         <p className="kicker">Local demo auth</p>
         <h2 id={titleId}>Credentials</h2>
         <p className="lede">
-          The hiring-manager path already uses <span className="mono">demo-runtime-key</span> and a
-          demo admin JWT. You should not need this panel. It exists to swap keys, not to unstick the
-          first click.
+          Optional local keys. The live console uses a demo cookie instead.
         </p>
         <form
           className="stack"

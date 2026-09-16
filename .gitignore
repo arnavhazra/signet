@@ -24,6 +24,9 @@ htmlcov/
 .env.*.local
 .env.bak
 
+# Private interview briefing — never publish
+INTERVIEW.md
+
 # Private ThisVersus clones — contracts only, never publish
 reference/
 
@@ -33,6 +36,10 @@ node_modules/
 out/
 coverage/
 web/dist/
+playwright-report/
+test-results/
+web/test-results/
+web/playwright-report/
 
 # Terraform / infra state (commit .terraform.lock.hcl; never commit state)
 **/.terraform/
@@ -62,3 +69,4 @@ override.tf.json
 *.sqlite
 *.sqlite3
 .runtime-test.db
+.vercel

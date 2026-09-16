@@ -1,8 +1,6 @@
 # Signet (web)
 
-Thin **server-driven UI** client for the governed HITL workflow kernel. The browser is a renderer: it paints artifact payloads and posts answers. It does not compute exception deltas, apply brackets, or evaluate bindings.
-
-App title: **Signet** — *Governed HITL workflow kernel*. Not Addison.
+Thin **server-driven UI** client. The browser paints artifact payloads and posts answers. It does not compute exception deltas, apply brackets, or evaluate bindings.
 
 ## Run locally
 
@@ -12,20 +10,21 @@ npm install
 npm run dev
 ```
 
-Vite serves the app at [http://127.0.0.1:5173](http://127.0.0.1:5173) and **proxies** `/v1`, `/health`, `/ready`, and `/admin/workflows` to `http://127.0.0.1:8000`. You should not see CORS errors in the hiring-manager path.
+Vite serves [http://127.0.0.1:5173](http://127.0.0.1:5173) and proxies `/v1`, `/health`, `/ready`, and `/admin/workflows` to `http://127.0.0.1:8000`. Production builds use same origin (`VITE_API_URL` empty); Vercel rewrites those paths to FastAPI.
 
-The public demo runtime key (`demo-runtime-key`) and a demo admin JWT are seeded into localStorage on first load. **Do not open Swap keys** for the default loop. That drawer is only for swapping credentials.
-
-Then: **Inject mismatch** → **Accept adjustment** → audit trail. `/admin` lists workflows with the demo JWT.
+`GET /v1/auth/demo` sets the operator cookie. `X-API-Key` remains a local fallback.
 
 ## Routes
 
 | Path | Screen |
 | --- | --- |
-| `/` | Operator — inject synthetic exception, render `currentNode`, server-derived facts/citations, human-readable audit |
-| `/admin` | Admin — load/create workflow JSON, preview inputs, publish; bindings are admin-only and stripped from GET `/v1/workflows/:slug/active` |
+| `/` | Inbox — queue of exceptions; click a row |
+| `/sessions/:id` | Decision — SDUI renderer, citations, audit, accept / reject / more data / checker |
+| `/sessions/:id/replay` | Stored `workflowId` + `version`, stripped contract, citations |
+| `/audit` | Read-only search |
+| `/admin` | Catalog, lint, fetch stripped contract |
 
-Query params: `/?session=<id>`, `/admin?workflow=<id>`.
+Nav: Inbox, Audit, Admin.
 
 ## Environment
 
@@ -33,40 +32,33 @@ See `.env.example`.
 
 | Variable | Purpose |
 | --- | --- |
-| `VITE_API_URL` | Orchestrator base URL for production builds. **Leave unset in Vite dev** (proxy). |
-| `VITE_API_KEY` | Optional override of `demo-runtime-key` |
-| `VITE_DEMO_ADMIN_JWT` | Optional override of the demo admin JWT |
-
-Production would inject keys via env / IdP. Hardcoding the public demo key in this client is interview-demo only.
-
-## Docker (nginx, port 3000)
-
-```bash
-cd web
-docker build --build-arg VITE_API_URL=http://localhost:8000 -t hitl-runtime-web:dev .
-docker run --rm -p 3000:3000 hitl-runtime-web:dev
-```
+| `VITE_API_URL` | API origin for production builds. Leave unset in Vite dev (proxy) and on Vercel (same origin). |
+| `VITE_API_KEY` | Optional override of the local demo runtime key |
 
 ## Frozen API used by this client
 
-Runtime (`X-API-Key`):
-
 - `GET /health`
-- `GET /v1/workflows/{slug}/active`
-- `POST /v1/events/exceptions` `{ accountId, securityId, bookQty, custodianQty, asOf, source }`
+- `GET /v1/auth/demo`
+- `GET /v1/inbox`
+- `POST /v1/events/exceptions`
 - `GET /v1/sessions/{id}`
-- `POST /v1/sessions/{id}/advance` `{ inputs: { [questionId]: value } }`
+- `POST /v1/sessions/{id}/advance` `{ inputs, expectedUpdatedAt? }`
 - `GET /v1/sessions/{id}/audit`
+- `GET /v1/sessions/{id}/replay`
+- `GET /v1/audit`
+- `GET /v1/workflows/{slug}/active`
+- `GET/POST /admin/workflows`, `GET /admin/workflows/{id}`, preview, publish
 
-Admin (`Authorization: Bearer`):
-
-- `GET/POST /admin/workflows`
-- `GET /admin/workflows/{id}`
-- `POST /admin/workflows/{id}/preview` `{ inputs }`
-- `POST /admin/workflows/{id}/publish`
-
-Operator **Inject mismatch** posts account `A-100`, security `US0378331005`, and unequal `bookQty` / `custodianQty`. The client never subtracts them. Each inject uses a unique `source` so a completed session does not block a new demo loop.
+`409 CONFLICT` on stale advance. Auditor `403` on writes. Show `X-Request-Id` on the session panel.
 
 ## Renderer contract
 
-Artifact components (`choice_cards`, `toggle`, `numeric_input`, `approval_card`) read presentation keys from `config` (`options`, `fields`/`facts`, `actions`, labels, numeric min/max/unit). They ignore `binding`, `bindings`, `filter_value`, `filter_bracket`, and `query_token`. The admin JSON editor may show bindings; the operator view does not dump `config`. Delta and citations are labeled **server-derived**.
+Artifact components (`choice_cards`, `toggle`, `numeric_input`, `approval_card`) read presentation keys from `config` (`options`, `fields`/`facts`, `actions`, labels, numeric min/max/unit). They ignore `binding`, `bindings`, `filter_value`, `filter_bracket`, and `query_token`. Delta and citations are server-derived.
+
+## Tests
+
+```bash
+npx playwright test
+```
+
+Inbox → high-delta maker-checker → audit trail → replay. Low-delta accept is a single step.

@@ -74,13 +74,17 @@ async def create_workflow(db: AsyncSession, slug: str, name: str, definition: di
 async def preview_workflow(db: AsyncSession, workflow_id: UUID, inputs: dict[str, Any]) -> dict[str, Any]:
     row = await get_workflow(db, workflow_id)
     lint = lint_workflow(row.definition)
-    resolved = resolve_wizard(row.definition, inputs)
-    return {
-        **resolved,
+    payload: dict[str, Any] = {
+        "lint": lint,
+        "errors": [e["message"] for e in lint["errors"]],
         "warnings": [w["message"] for w in lint["warnings"]],
         "workflowId": str(row.id),
         "version": row.version,
     }
+    if lint["valid"]:
+        resolved = resolve_wizard(row.definition, inputs)
+        payload.update(resolved)
+    return payload
 
 
 async def publish_workflow(db: AsyncSession, workflow_id: UUID, cache: Cache) -> Workflow:

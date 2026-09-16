@@ -118,7 +118,7 @@ export default function AdminPage() {
     setNotice(null);
     try {
       await api.publishWorkflow(selectedId);
-      setNotice('Published. Runtime clients will see the stripped contract on GET /v1/workflows/{slug}/active.');
+      setNotice('Published. Runtime clients see the stripped contract.');
       await refreshList();
     } catch (err) {
       setError(toMessage(err));
@@ -152,13 +152,7 @@ export default function AdminPage() {
         <div>
           <p className="kicker">Admin console</p>
           <h1>Workflow publish</h1>
-          <p className="lede">
-            Bindings are admin-only. They are the product rules (filter_value, filter_bracket,
-            query_token) and they are stripped from{' '}
-            <span className="mono">GET /v1/workflows/:slug/active</span>. Operators never receive
-            them. Author, preview, and publish an immutable version here — this is not an end-user
-            product surface.
-          </p>
+          <p className="lede">Catalog, lint, publish. Fetch the stripped runtime contract.</p>
         </div>
         <button className="btn" type="button" onClick={() => void refreshList()} disabled={busy}>
           Refresh list
@@ -181,12 +175,7 @@ export default function AdminPage() {
                 <span className="spin" aria-hidden="true" /> Loading catalog…
               </p>
             ) : workflows.length === 0 ? (
-              <p className="empty">
-                No workflows from GET /admin/workflows. If this is a fresh database, run{' '}
-                <span className="mono">python -m app.seed</span> in runtime/. A 401 here usually
-                means the demo admin JWT does not match JWT_SECRET — Restore demo defaults under
-                Swap keys.
-              </p>
+              <p className="empty">No workflows. Seed the database or create one below.</p>
             ) : (
               <ul className="workflow-list">
                 {workflows.map((workflow) => (
@@ -194,6 +183,7 @@ export default function AdminPage() {
                     <button
                       type="button"
                       className={workflow.id === selectedId ? 'is-selected' : undefined}
+                      data-testid={`workflow-${typeof workflow.slug === 'string' ? workflow.slug : workflow.id}`}
                       onClick={() => setParams({ workflow: workflow.id })}
                     >
                       <strong>{typeof workflow.name === 'string' ? workflow.name : workflow.id}</strong>
@@ -210,7 +200,7 @@ export default function AdminPage() {
           </section>
 
           <section className="panel">
-            <p className="admin-flag">Admin-only editor — bindings may appear in this JSON</p>
+            <p className="admin-flag">Definition JSON — bindings may be present</p>
             <p className="panel__stamp">Definition</p>
             <div className="stack">
               <div className="row">
@@ -246,10 +236,7 @@ export default function AdminPage() {
 
           <section className="panel">
             <p className="panel__stamp">Preview inputs</p>
-            <p className="help">
-              Posted as <span className="mono">{'{ inputs }'}</span> to{' '}
-              <span className="mono">POST /admin/workflows/{'{id}'}/preview</span>.
-            </p>
+            <p className="help">Dry-run against this version. Lint errors surface here before publish.</p>
             <div className="field" style={{ marginTop: 12 }}>
               <label htmlFor="wf-inputs">Inputs JSON</label>
               <textarea
@@ -272,9 +259,7 @@ export default function AdminPage() {
         <div className="stack">
           <section className="panel">
             <p className="panel__stamp">Artifact preview</p>
-            <p className="help">
-              Renderer only. Binding keys are not read by artifact components.
-            </p>
+            <p className="help">Renderer only. Binding keys are ignored by artifact components.</p>
             {previewNodes.length > 0 ? (
               <div className="stack" style={{ marginTop: 16 }}>
                 {previewNodes.map((node) => (
@@ -296,19 +281,19 @@ export default function AdminPage() {
           <section className="panel">
             <p className="panel__stamp">Runtime contract</p>
             <p className="help">
-              GET /v1/workflows/{'{slug}'}/active returns artifact configs only. Compare with the
-              admin JSON on the left: the <span className="mono">binding</span> key is present there
-              and absent here.
+              Runtime contract after <span className="mono">strip_bindings</span>. Compare with the
+              admin JSON: <span className="mono">binding</span> is present there and absent here.
             </p>
             <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn" type="button" disabled={busy || !slug} onClick={() => void fetchStripped()}>
+              <button className="btn" type="button" disabled={busy || !slug} onClick={() => void fetchStripped()} data-testid="fetch-stripped">
                 Fetch stripped contract
               </button>
               {active ? <StatusPill status={`v${active.version}`} /> : null}
             </div>
             {active ? (
-              <div className="stack" style={{ marginTop: 16 }}>
+              <div className="stack" style={{ marginTop: 16 }} data-testid="stripped-contract">
                 <Factish workflow={active} />
+                <pre className="json-view">{JSON.stringify(active, null, 2)}</pre>
                 {active.steps?.map((step) => (
                   <ArtifactRenderer
                     key={step.questionId}

@@ -1,25 +1,32 @@
-import { DEMO_RUNTIME_KEY, readCredentials } from '@/auth/credentials';
+import { readCredentials } from '@/auth/credentials';
 import type {
   ActiveWorkflow,
   AdminWorkflow,
   AdvanceRequest,
   AuditEvent,
+  AuditQuery,
   CreateWorkflowRequest,
   ExceptionEvent,
+  InboxItem,
   JsonObject,
   PreviewRequest,
+  SessionReplay,
   SessionSnapshot,
 } from '@/api/types';
 
 export class ApiError extends Error {
   status: number;
   body: unknown;
+  requestId: string | null;
+  code: string | null;
 
-  constructor(message: string, status: number, body: unknown) {
+  constructor(message: string, status: number, body: unknown, requestId: string | null = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
+    this.requestId = requestId;
+    this.code = extractErrorCode(body);
   }
 }
 
@@ -28,8 +35,8 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * Vite dev uses a same-origin proxy (see vite.config.ts) so the browser never
- * trips CORS or localhost vs 127.0.0.1. Production builds call VITE_API_URL.
+ * Vite dev uses a same-origin proxy (see vite.config.ts).
+ * Production builds with empty VITE_API_URL stay same-origin.
  */
 export function getBaseUrl(): string {
   const configured = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
@@ -46,21 +53,41 @@ export function getBaseUrl(): string {
     }
   }
 
-  const raw = configured || 'http://localhost:8000';
-  if (typeof window === 'undefined') return raw;
+  if (!configured) return '';
+
+  if (typeof window === 'undefined') return configured;
   try {
-    const api = new URL(raw, window.location.origin);
+    const api = new URL(configured, window.location.origin);
     if (isLoopbackHost(api.hostname) && isLoopbackHost(window.location.hostname)) {
       api.hostname = window.location.hostname;
     }
     if (api.origin === window.location.origin) return '';
     return api.origin;
   } catch {
-    return raw;
+    return configured;
   }
 }
 
+let lastRequestId: string | null = null;
+
+export function getLastRequestId(): string | null {
+  return lastRequestId;
+}
+
+function headerRequestId(res: Response): string | null {
+  return res.headers.get('X-Request-Id') ?? res.headers.get('x-request-id');
+}
+
 type AuthMode = 'admin' | 'runtime' | 'none';
+
+function queryString(params: Record<string, string | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value && value.trim()) search.set(key, value.trim());
+  }
+  const text = search.toString();
+  return text ? `?${text}` : '';
+}
 
 async function request<T>(
   method: string,
@@ -74,9 +101,8 @@ async function request<T>(
   if (auth === 'admin' && creds.jwt.trim()) {
     headers.Authorization = `Bearer ${creds.jwt.trim()}`;
   }
-  if (auth === 'runtime') {
-    // Never omit this header in the demo. An empty saved key still falls back to the public demo key.
-    headers['X-API-Key'] = creds.apiKey.trim() || DEMO_RUNTIME_KEY;
+  if (auth === 'runtime' && creds.apiKey.trim()) {
+    headers['X-API-Key'] = creds.apiKey.trim();
   }
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
@@ -87,12 +113,15 @@ async function request<T>(
     res = await fetch(`${getBaseUrl()}${path}`, {
       method,
       headers,
+      credentials: 'include',
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (err) {
-    const why = err instanceof Error && err.message ? err.message : 'network error';
-    throw new ApiError(`Kernel unreachable (${why})`, 0, err);
+    throw new ApiError('Kernel unreachable', 0, err);
   }
+
+  const requestId = headerRequestId(res);
+  lastRequestId = requestId;
 
   const text = await res.text();
   let data: unknown = null;
@@ -106,10 +135,18 @@ async function request<T>(
 
   if (!res.ok) {
     const message = extractErrorMessage(data) ?? `${method} ${path} failed (${res.status})`;
-    throw new ApiError(message, res.status, data);
+    throw new ApiError(message, res.status, data, requestId);
   }
 
   return data as T;
+}
+
+function extractErrorCode(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const rec = data as Record<string, unknown>;
+  if (typeof rec.error === 'string' && rec.error.trim()) return rec.error;
+  if (typeof rec.code === 'string' && rec.code.trim()) return rec.code;
+  return null;
 }
 
 function extractErrorMessage(data: unknown): string | null {
@@ -141,7 +178,7 @@ export function unwrapList<T>(data: unknown): T[] {
   if (Array.isArray(data)) return data as T[];
   if (data && typeof data === 'object') {
     const rec = data as Record<string, unknown>;
-    for (const key of ['items', 'workflows', 'data', 'results']) {
+    for (const key of ['items', 'workflows', 'data', 'results', 'events']) {
       const value = rec[key];
       if (Array.isArray(value)) return value as T[];
     }
@@ -169,11 +206,57 @@ export function extractSessionId(payload: unknown): string | null {
   return null;
 }
 
+export function extractLintIssues(data: unknown): { errors: string[]; warnings: string[] } {
+  if (!data || typeof data !== 'object') return { errors: [], warnings: [] };
+  const rec = data as Record<string, unknown>;
+  const lint =
+    rec.lint && typeof rec.lint === 'object' && !Array.isArray(rec.lint)
+      ? (rec.lint as Record<string, unknown>)
+      : rec;
+  return {
+    errors: issueList(lint.errors ?? rec.issues),
+    warnings: issueList(lint.warnings ?? rec.warnings),
+  };
+}
+
+function issueList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === 'string' && item.trim()) return item;
+      if (item && typeof item === 'object' && 'message' in item) {
+        const message = (item as { message: unknown }).message;
+        if (typeof message === 'string' && message.trim()) return message;
+      }
+      return null;
+    })
+    .filter((item): item is string => Boolean(item));
+}
+
 export const api = {
   health: () => request<unknown>('GET', '/health', 'none'),
 
-  listWorkflows: () =>
-    request<unknown>('GET', '/admin/workflows', 'admin'),
+  demoAuth: (role = 'operator') => request<unknown>('GET', `/v1/auth/demo${queryString({ role })}`, 'none'),
+
+  authMe: () => request<{ sub: string; role: string; via: string }>('GET', '/v1/auth/me', 'runtime'),
+
+  listInbox: () => request<unknown>('GET', '/v1/inbox', 'runtime'),
+
+  searchAudit: (query: AuditQuery) =>
+    request<unknown>(
+      'GET',
+      `/v1/audit${queryString({
+        accountId: query.accountId,
+        eventType: query.eventType,
+        sessionId: query.sessionId,
+      })}`,
+      'runtime',
+    ),
+
+  getReplay: (id: string) =>
+    request<SessionReplay>('GET', `/v1/sessions/${encodeURIComponent(id)}/replay`, 'runtime'),
+
+  listWorkflows: () => request<unknown>('GET', '/admin/workflows', 'admin'),
 
   createWorkflow: (body: CreateWorkflowRequest) =>
     request<AdminWorkflow>('POST', '/admin/workflows', 'admin', body),
@@ -190,18 +273,10 @@ export const api = {
     ),
 
   publishWorkflow: (id: string) =>
-    request<unknown>(
-      'POST',
-      `/admin/workflows/${encodeURIComponent(id)}/publish`,
-      'admin',
-    ),
+    request<unknown>('POST', `/admin/workflows/${encodeURIComponent(id)}/publish`, 'admin'),
 
   getActiveWorkflow: (slug: string) =>
-    request<ActiveWorkflow>(
-      'GET',
-      `/v1/workflows/${encodeURIComponent(slug)}/active`,
-      'runtime',
-    ),
+    request<ActiveWorkflow>('GET', `/v1/workflows/${encodeURIComponent(slug)}/active`, 'runtime'),
 
   injectException: (body: ExceptionEvent) =>
     request<unknown>('POST', '/v1/events/exceptions', 'runtime', body),
@@ -210,16 +285,23 @@ export const api = {
     request<SessionSnapshot>('GET', `/v1/sessions/${encodeURIComponent(id)}`, 'runtime'),
 
   advanceSession: (id: string, body: AdvanceRequest) =>
-    request<unknown>(
-      'POST',
-      `/v1/sessions/${encodeURIComponent(id)}/advance`,
-      'runtime',
-      body,
-    ),
+    request<unknown>('POST', `/v1/sessions/${encodeURIComponent(id)}/advance`, 'runtime', body),
 
   getAudit: (id: string) =>
     request<unknown>('GET', `/v1/sessions/${encodeURIComponent(id)}/audit`, 'runtime'),
 };
+
+export async function ensureDemoSession(role = 'operator'): Promise<void> {
+  try {
+    await api.demoAuth(role);
+  } catch {
+    /* Cookie auth is optional; X-API-Key fallback still works locally. */
+  }
+}
+
+export function unwrapInbox(data: unknown): InboxItem[] {
+  return unwrapList<InboxItem>(data).filter((item) => item && typeof item.sessionId === 'string');
+}
 
 export function unwrapAudit(data: unknown): AuditEvent[] {
   if (Array.isArray(data)) return data as AuditEvent[];
@@ -238,4 +320,9 @@ export function asJsonObject(value: unknown): JsonObject {
     return value as JsonObject;
   }
   return {};
+}
+
+export function sessionConcurrencyToken(snapshot: SessionSnapshot | null): string | undefined {
+  if (!snapshot) return undefined;
+  return snapshot.updatedAt || snapshot.expectedUpdatedAt;
 }

@@ -159,25 +159,72 @@ export function readNumberConfig(config: JsonObject): {
 
 export function isTerminalStatus(status: string): boolean {
   const normalized = status.trim().toLowerCase();
-  return normalized === 'completed' || normalized === 'failed';
+  return (
+    normalized === 'completed' ||
+    normalized === 'failed' ||
+    normalized === 'done' ||
+    normalized === 'closed' ||
+    normalized === 'pending_more_data'
+  );
+}
+
+export function inboxStatus(status: string, awaitingChecker?: boolean): string {
+  if (awaitingChecker) return 'awaiting_checker';
+  const normalized = status.trim().toLowerCase();
+  if (normalized === 'completed' || normalized === 'failed' || normalized === 'done' || normalized === 'closed') {
+    return 'done';
+  }
+  if (normalized === 'awaiting_checker') return 'awaiting_checker';
+  if (normalized === 'pending_more_data') return 'pending_more_data';
+  if (
+    normalized === 'awaiting_input' ||
+    normalized === 'open' ||
+    normalized === 'created' ||
+    normalized === 'active'
+  ) {
+    return 'open';
+  }
+  return normalized || 'open';
 }
 
 export function statusLabel(status: string): string {
   const normalized = status.trim().toLowerCase();
   if (!normalized || normalized === 'idle') return 'Ready';
-  if (normalized === 'awaiting_input') return 'Waiting on you';
-  if (normalized === 'completed') return 'Completed';
+  if (normalized === 'awaiting_input' || normalized === 'open') return 'Open';
+  if (normalized === 'awaiting_checker') return 'Awaiting checker';
+  if (normalized === 'pending_more_data') return 'More data';
+  if (normalized === 'completed' || normalized === 'done') return 'Done';
   if (normalized === 'failed' || normalized === 'error') return 'Failed';
-  if (normalized === 'created' || normalized === 'active') return 'Running DAG';
+  if (normalized === 'created' || normalized === 'active') return 'Running';
   return status;
 }
 
 export function statusTone(status: string): 'ok' | 'bad' | 'wait' | 'idle' {
   const normalized = status.trim().toLowerCase();
-  if (normalized === 'completed') return 'ok';
+  if (normalized === 'completed' || normalized === 'done') return 'ok';
   if (normalized === 'failed' || normalized === 'error') return 'bad';
   if (!status || normalized === 'idle') return 'idle';
   return 'wait';
+}
+
+export function formatAge(iso: string | undefined | null): string {
+  if (!iso) return '—';
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return iso;
+  const sec = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (sec < 45) return `${sec}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.round(min / 60);
+  if (hr < 48) return `${hr}h`;
+  return `${Math.round(hr / 24)}d`;
+}
+
+export function formatSigned(value: number): string {
+  const abs = new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 }).format(Math.abs(value));
+  if (value > 0) return `+${abs}`;
+  if (value < 0) return `−${abs}`;
+  return abs;
 }
 
 export function artifactKicker(type: string): string {

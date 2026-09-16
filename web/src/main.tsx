@@ -2,10 +2,10 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from '@/App';
-import { ensureDemoCredentials } from '@/auth/credentials';
+import { ensureDemoSession } from '@/api/client';
 import '@/index.css';
 
-ensureDemoCredentials();
+void ensureDemoSession();
 
 const root = document.getElementById('root');
 if (!root) {

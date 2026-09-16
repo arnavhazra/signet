@@ -94,10 +94,12 @@ class ExceptionEvent(BaseModel):
     custodianQty: float
     asOf: str
     source: str
+    workflowSlug: str | None = None
 
 
 class AdvanceBody(BaseModel):
     inputs: dict[str, Any]
+    expectedUpdatedAt: str | None = None
 
 
 class PublicStep(BaseModel):

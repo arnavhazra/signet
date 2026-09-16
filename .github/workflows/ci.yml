@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   python:
-    name: ruff / pytest / docker
+    name: ruff / pytest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,11 +34,41 @@ jobs:
           pip install -r requirements.txt
           python -m pytest -q tests
 
-      - name: Docker build (API)
-        run: docker build -t hitl-runtime-api:ci -f runtime/Dockerfile runtime/
+  e2e:
+    name: playwright
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Docker build (web)
-        run: docker build -t hitl-runtime-web:ci --build-arg VITE_API_URL=http://localhost:8000 -f web/Dockerfile web/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Python deps
+        working-directory: runtime
+        run: pip install -r requirements.txt
+
+      - name: Web deps
+        working-directory: web
+        run: npm ci
+
+      - name: Build SPA
+        working-directory: web
+        run: npm run build
+
+      - name: Install Playwright
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright
+        working-directory: web
+        run: npx playwright test
 
   terraform:
     name: terraform fmt / validate

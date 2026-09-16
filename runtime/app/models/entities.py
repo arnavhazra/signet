@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON, Uuid
 
 from app.models.base import Base
+from app.org import DEMO_ORG_ID
 
 
 def utcnow() -> datetime:
@@ -44,6 +45,7 @@ class WorkflowSession(Base):
     __tablename__ = "workflow_sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default=DEMO_ORG_ID, index=True)
     workflow_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("workflows.id"), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="created")
@@ -52,20 +54,28 @@ class WorkflowSession(Base):
     derived: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     citations: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     history: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    event_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    event_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lock_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "event_fingerprint", name="uq_sessions_org_fingerprint"),
+        Index("ix_sessions_org_status_created", "org_id", "status", "created_at"),
+    )
 
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default=DEMO_ORG_ID, index=True)
     session_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("workflow_sessions.id"), nullable=False, index=True
     )
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str | None] = mapped_column(String(64), nullable=True)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False, index=True)
 
@@ -74,6 +84,7 @@ class Remediation(Base):
     __tablename__ = "remediations"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default=DEMO_ORG_ID, index=True)
     session_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("workflow_sessions.id"), nullable=False, index=True
     )
@@ -87,3 +98,29 @@ class Remediation(Base):
     delta: Mapped[float] = mapped_column(nullable=False)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class ExceptionEventRow(Base):
+    __tablename__ = "exception_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default=DEMO_ORG_ID, index=True)
+    source: Mapped[str] = mapped_column(String(256), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("workflow_sessions.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "source", name="uq_exception_events_org_source"),
+        Index(
+            "uq_exception_events_org_idempotency",
+            "org_id",
+            "idempotency_key",
+            unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )

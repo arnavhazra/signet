@@ -1,0 +1,13 @@
+infra
+reference
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/__pycache__
+web/node_modules
+runtime/.venv
+.git
+INTERVIEW.md
+.env
+runtime/.env
+**/*.db

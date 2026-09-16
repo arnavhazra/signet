@@ -92,6 +92,10 @@ def lint_workflow(definition: dict[str, Any]) -> dict[str, Any]:
                 )
             )
 
+    cycle = _first_cycle(nodes, edges)
+    if cycle:
+        errors.append(LintIssue("error", f"Workflow has a cycle: {' → '.join(cycle)}"))
+
     entry = definition.get("entryNodeId") or (nodes[0]["id"] if nodes else None)
     reachable: set[str] = set()
     if entry:
@@ -131,6 +135,41 @@ def lint_workflow(definition: dict[str, Any]) -> dict[str, Any]:
         "errors": [e.as_dict() for e in errors],
         "warnings": [w.as_dict() for w in warnings],
     }
+
+
+def _first_cycle(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> list[str] | None:
+    adj: dict[str, list[str]] = {}
+    for edge in edges:
+        src = edge.get("from")
+        dest = edge.get("to")
+        if src and dest:
+            adj.setdefault(src, []).append(dest)
+    color: dict[str, str] = {}
+    stack: list[str] = []
+
+    def dfs(node_id: str) -> list[str] | None:
+        color[node_id] = "gray"
+        stack.append(node_id)
+        for nxt in adj.get(node_id, []):
+            state = color.get(nxt, "white")
+            if state == "gray":
+                start = stack.index(nxt)
+                return stack[start:] + [nxt]
+            if state == "white":
+                found = dfs(nxt)
+                if found:
+                    return found
+        stack.pop()
+        color[node_id] = "black"
+        return None
+
+    for node in nodes:
+        nid = node.get("id")
+        if nid and color.get(nid, "white") == "white":
+            found = dfs(nid)
+            if found:
+                return found
+    return None
 
 
 def assert_valid_workflow(definition: dict[str, Any]) -> None:

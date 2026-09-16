@@ -112,9 +112,7 @@ export default function OperatorPage() {
         const raw = await api.getAudit(posted.sessionId);
         setAudit(unwrapAudit(raw));
         if (posted.currentNode) {
-          setNotice(
-            'Event ingested. The DAG computed delta and citations on the server, then halted on the approval card. You are the human in the loop.',
-          );
+          setNotice('Event ingested. The DAG halted on the approval card.');
         }
         return;
       }
@@ -128,7 +126,7 @@ export default function OperatorPage() {
       const next = await loadSession(id);
       if (next.currentNode) {
         setNotice(
-          'Event ingested. The DAG computed delta and citations on the server, then halted on the approval card. You are the human in the loop.',
+          'Event ingested. The DAG halted on the approval card.',
         );
       }
     } catch (err) {
@@ -180,11 +178,7 @@ export default function OperatorPage() {
         <div>
           <p className="kicker">Operator console</p>
           <h1>Exception review</h1>
-          <p className="lede">
-            This is not Addison. It is a governed HITL workflow kernel: an event comes in, a versioned
-            DAG runs on the server, the UI halts for a human, and the only writes go through an
-            audited tool gateway. Bindings and rules never leave the server — this page is a renderer.
-          </p>
+          <p className="lede">Exception review. Inject an event, decide on the card, read the audit trail.</p>
         </div>
         <div className="row">
           <StatusPill status={snapshot?.status ?? 'idle'} />
@@ -249,9 +243,7 @@ export default function OperatorPage() {
             {snapshot?.currentNode ? (
               <>
                 <p className="help" style={{ marginBottom: 12 }}>
-                  You are the human in the loop. The kernel will not write until you choose. Facts on
-                  the card are <span className="stamp-inline">server-derived</span> — this client only
-                  paints them.
+                  Facts on the card are server-derived. This client only paints them.
                 </p>
                 <ArtifactRenderer
                   key={snapshot.currentNode.id}
@@ -303,9 +295,7 @@ export default function OperatorPage() {
             <section className="panel">
               <p className="panel__stamp">What you will see</p>
               <p className="help">
-                After inject: an approval card, a server-derived quantity delta, citations to book and
-                custodian records, then an audit trail in plain English. Credentials stay available if
-                you need to swap keys; the hiring-manager path does not use them.
+                After inject: an approval card, a server-derived quantity delta, citations, then an audit trail.
               </p>
             </section>
           )}

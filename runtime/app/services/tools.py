@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.logging import get_logger
 from app.models.entities import AuditEvent, Remediation
+from app.org import DEMO_ORG_ID
 from app.otel import get_tracer
 from app.schemas.api import AppError
 
@@ -37,7 +38,7 @@ class ToolGateway:
             return result
 
     async def _audit(self, event_type: str, payload: dict[str, Any]) -> AuditEvent:
-        event = AuditEvent(session_id=self.session_id, event_type=event_type, payload=payload)
+        event = AuditEvent(session_id=self.session_id, event_type=event_type, payload=payload, org_id=DEMO_ORG_ID)
         self.db.add(event)
         await self.db.flush()
         if event.id is None:
@@ -59,6 +60,7 @@ class ToolGateway:
         row = Remediation(
             session_id=self.session_id,
             audit_event_id=audit_id,
+            org_id=DEMO_ORG_ID,
             account_id=str(accumulated.get("accountId")),
             security_id=str(accumulated.get("securityId")),
             book_qty=float(accumulated.get("bookQty")),

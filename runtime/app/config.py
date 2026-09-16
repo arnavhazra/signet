@@ -1,6 +1,7 @@
 from pathlib import Path
 from urllib.parse import quote
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _RUNTIME_ROOT = Path(__file__).resolve().parents[1]
@@ -9,7 +10,7 @@ _SUPABASE_CA = _RUNTIME_ROOT / "certs" / "supabase-root-2021.crt"
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(str(_RUNTIME_ROOT / ".env"), ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -23,12 +24,21 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     RATE_LIMIT_PER_MINUTE: int = 30
     TESTING: bool = False
-    OTEL_SERVICE_NAME: str = "hitl-runtime"
+    DEMO_MODE: bool = False
+    SIGNET_BOOTSTRAP: bool = False
+    OTEL_SERVICE_NAME: str = "signet-runtime"
     CORS_ORIGINS: str = (
         "http://localhost:5173,http://127.0.0.1:5173,"
         "http://localhost:3000,http://127.0.0.1:3000,"
         "http://localhost:4173,http://127.0.0.1:4173"
     )
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _strip_env(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:
