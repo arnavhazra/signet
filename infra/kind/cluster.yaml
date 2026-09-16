@@ -1,0 +1,38 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: hitl-runtime
+networking:
+  ipFamily: ipv4
+  apiServerAddress: "127.0.0.1"
+  disableDefaultCNI: false
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true,addepar.dev/env=dev"
+    extraPortMappings:
+      # Optional NodePort bridges (workloads default to ClusterIP + kubectl port-forward).
+      # Map host ports onto the kind control-plane node's NodePort range.
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+      - containerPort: 30300
+        hostPort: 3000
+        protocol: TCP
+      - containerPort: 30686
+        hostPort: 16686
+        protocol: TCP
+      - containerPort: 30090
+        hostPort: 9090
+        protocol: TCP
+      - containerPort: 30417
+        hostPort: 4317
+        protocol: TCP
+      - containerPort: 30418
+        hostPort: 4318
+        protocol: TCP

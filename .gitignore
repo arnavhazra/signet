@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Secrets / local env
+.env
+.env.local
+.env.*.local
+.env.bak
+
+# Private ThisVersus clones — contracts only, never publish
+reference/
+
+# Node / frontend
+node_modules/
+.next/
+out/
+coverage/
+web/dist/
+
+# Terraform / infra state (commit .terraform.lock.hcl; never commit state)
+**/.terraform/
+terraform.tfstate*
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.tfstate.lock.info
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local databases / test artifacts
+*.db
+*.sqlite
+*.sqlite3
+.runtime-test.db

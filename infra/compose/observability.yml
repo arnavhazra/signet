@@ -1,0 +1,57 @@
+# Optional observability overlay for the runtime compose stack.
+#
+# Replaces runtime/docker-compose.yml's collector with Jaeger + Prometheus:
+#   docker compose -f runtime/docker-compose.yml -f infra/compose/observability.yml up
+#
+# Standalone (Jaeger UI, Prometheus, OTLP ingest only):
+#   docker compose -f infra/compose/observability.yml up
+#
+# Ports: Jaeger 16686, Prometheus 9090, OTLP 4317 (gRPC) / 4318 (HTTP).
+# Combining with runtime/docker-compose.yml merges the otel-collector service
+# (do not run both collector configs as separate stacks on the same host ports).
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    container_name: hitl-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ../observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8888:8888" # collector self-metrics
+      - "8889:8889" # prometheus exporter
+    depends_on:
+      - jaeger
+    environment:
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=hitl-runtime
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: hitl-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # query UI
+    expose:
+      - "4317"
+      - "4318"
+      - "14250"
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: hitl-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ../observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector

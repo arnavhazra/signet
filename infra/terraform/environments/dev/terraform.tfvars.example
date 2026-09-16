@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (gitignored if you add secrets). Defaults already work for kind.
+kube_context = "kind-hitl-runtime"
+namespace    = "hitl"
+cluster_name = "hitl-runtime"
+api_image    = "hitl-runtime-api:dev"
+frontend_image = "hitl-runtime-web:dev"
+canary       = "false"

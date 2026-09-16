@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: ruff / pytest / docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ruff
+        run: |
+          pip install ruff
+          ruff check --config runtime/ruff.toml runtime/app runtime/tests
+
+      - name: Pytest
+        working-directory: runtime
+        run: |
+          pip install -r requirements.txt
+          python -m pytest -q tests
+
+      - name: Docker build (API)
+        run: docker build -t hitl-runtime-api:ci -f runtime/Dockerfile runtime/
+
+      - name: Docker build (web)
+        run: docker build -t hitl-runtime-web:ci --build-arg VITE_API_URL=http://localhost:8000 -f web/Dockerfile web/
+
+  terraform:
+    name: terraform fmt / validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform/environments/dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: terraform fmt -check (recursive)
+        working-directory: .
+        run: terraform fmt -check -recursive infra/terraform
+
+      - name: terraform init
+        run: terraform init -backend=false
+
+      - name: terraform fmt -check (environments/dev)
+        run: terraform fmt -check
+
+      - name: terraform validate
+        run: terraform validate
