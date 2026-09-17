@@ -4,8 +4,6 @@ import json
 import re
 from typing import Any
 
-import httpx
-
 from app.config import Settings
 from app.logging import get_logger
 from app.services.policy import KNOWN_INTENTS, normalize_intent
@@ -95,6 +93,10 @@ async def parse_with_llm(text: str, settings: Settings) -> dict[str, Any]:
         "Authorization": f"Bearer {settings.LLM_API_KEY}",
         "Content-Type": "application/json",
     }
+    try:
+        import httpx
+    except ImportError as exc:
+        raise RuntimeError("httpx is required for LLM parsing") from exc
     async with httpx.AsyncClient(timeout=8.0) as client:
         response = await client.post(url, headers=headers, json=payload)
         response.raise_for_status()
