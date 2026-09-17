@@ -7,6 +7,7 @@ import {
   highDeltaRow,
   isRemote,
   kernelTimeout,
+  openInbox,
   readyConsole,
   startTour,
   test,
@@ -18,14 +19,25 @@ test.describe('Tour FSM', () => {
 
   test('walks inbox through propose-write Done', async ({ page }) => {
     test.setTimeout(isRemote() ? 360_000 : 180_000);
-    await readyConsole(page);
+    await openInbox(page);
     await startTour(page);
     await waitTourTitle(page, 'Inbox');
     await clickTourNextUntil(page, 'High-delta row');
     await clickTourNextUntil(page, 'Maker accept');
-    await clickTourNextUntil(page, 'Switch role', 'action-accept_adjustment');
-    await clickTourNextUntil(page, 'Checker approve', 'role-checker');
-    await clickTourNextUntil(page, 'Audit', 'action-accept_adjustment');
+
+    await expect(page.getByTestId('action-accept_adjustment')).toBeEnabled({ timeout: kernelTimeout() });
+    await page.getByTestId('action-accept_adjustment').click({ force: true });
+    await expect(page.getByRole('status').filter({ hasText: /Waiting on checker/ })).toBeVisible({
+      timeout: kernelTimeout(),
+    });
+    await waitTourTitle(page, 'Switch role');
+
+    await page.getByTestId('role-checker').click();
+    await waitTourTitle(page, 'Checker approve');
+
+    await expect(page.getByTestId('action-accept_adjustment')).toBeEnabled({ timeout: kernelTimeout() });
+    await page.getByTestId('action-accept_adjustment').click({ force: true });
+    await waitTourTitle(page, 'Audit');
     await waitTourTitle(page, 'Replay');
     await waitTourTitle(page, 'Propose write');
 
