@@ -41,10 +41,19 @@ export default function AdminPage() {
     const data = await api.listWorkflows();
     setWorkflows(unwrapList<AdminWorkflow>(data).filter((item) => typeof item.id === 'string'));
     setListReady(true);
+    setError(null);
   }, []);
 
   useEffect(() => {
     void refreshList().catch((err: unknown) => setError(toMessage(err)));
+  }, [refreshList]);
+
+  useEffect(() => {
+    const onRole = () => {
+      void refreshList().catch((err: unknown) => setError(toMessage(err)));
+    };
+    window.addEventListener('signet:role', onRole);
+    return () => window.removeEventListener('signet:role', onRole);
   }, [refreshList]);
 
   useEffect(() => {
@@ -152,7 +161,7 @@ export default function AdminPage() {
         <div>
           <p className="kicker">Admin console</p>
           <h1>Workflow publish</h1>
-          <p className="lede">Catalog, lint, publish. Fetch the stripped runtime contract.</p>
+          <p className="lede">Catalog, lint, publish. Switch role to admin — the demo cookie is the credential.</p>
         </div>
         <button className="btn" type="button" onClick={() => void refreshList()} disabled={busy}>
           Refresh list

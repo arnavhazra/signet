@@ -70,3 +70,57 @@ async def test_low_delta_accept_is_single_step(client, api_headers, fixture_even
         if e["eventType"] == "human.decision"
     ]
     assert len(humans) == 1
+
+
+async def test_operator_cannot_advance_checker_node(
+    client, api_headers, operator_headers, checker_headers, high_delta_event
+):
+    event = {**high_delta_event, "source": "checker-authz"}
+    created = await client.post("/v1/events/exceptions", headers=api_headers, json=event)
+    assert created.status_code == 200, created.text
+    session_id = created.json()["sessionId"]
+    maker = await client.post(
+        f"/v1/sessions/{session_id}/advance",
+        headers=operator_headers,
+        json={"inputs": {"decision": "accept_adjustment"}, "expectedUpdatedAt": created.json()["updatedAt"]},
+    )
+    assert maker.status_code == 200, maker.text
+    halted = maker.json()
+    assert halted["currentNode"]["id"] == "checker_approval"
+    token = halted["updatedAt"]
+
+    denied = await client.post(
+        f"/v1/sessions/{session_id}/advance",
+        headers=operator_headers,
+        json={"inputs": {"checkerDecision": "accept_adjustment"}, "expectedUpdatedAt": token},
+    )
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["error"] == "FORBIDDEN"
+    assert denied.json()["message"] == "checker role required"
+
+    runtime_denied = await client.post(
+        f"/v1/sessions/{session_id}/advance",
+        headers=api_headers,
+        json={"inputs": {"checkerDecision": "accept_adjustment"}, "expectedUpdatedAt": token},
+    )
+    assert runtime_denied.status_code == 403, runtime_denied.text
+    assert runtime_denied.json()["error"] == "FORBIDDEN"
+
+    still = await client.get(f"/v1/sessions/{session_id}", headers=api_headers)
+    assert still.status_code == 200
+    assert still.json()["currentNode"]["id"] == "checker_approval"
+    assert still.json()["status"] == "awaiting_input"
+    humans = [
+        e
+        for e in (await client.get(f"/v1/sessions/{session_id}/audit", headers=api_headers)).json()["events"]
+        if e["eventType"] == "human.decision"
+    ]
+    assert len(humans) == 1
+
+    allowed = await client.post(
+        f"/v1/sessions/{session_id}/advance",
+        headers=checker_headers,
+        json={"inputs": {"checkerDecision": "accept_adjustment"}, "expectedUpdatedAt": token},
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["status"] == "completed"

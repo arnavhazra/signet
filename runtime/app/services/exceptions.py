@@ -13,13 +13,14 @@ from app.engine.dag import DagEngine
 from app.engine.nodes import NodeRegistry
 from app.logging import get_logger
 from app.models.entities import AuditEvent, ExceptionEventRow, Workflow, WorkflowSession
-from app.org import DEFAULT_WORKFLOW_SLUG, DEMO_ORG_ID
+from app.org import CHECKER_ADVANCE_ROLES, DEFAULT_WORKFLOW_SLUG, DEMO_ORG_ID
 from app.otel import get_tracer
 from app.schemas.api import AppError, ExceptionEvent
 from app.services.sessions import (
     apply_state,
     get_session,
     inbox_status,
+    is_checker_node,
     iso_z,
     orm_to_state,
     parse_iso,
@@ -231,6 +232,8 @@ async def advance_session(
         raise AppError("Session changed", status_code=409, error="CONFLICT")
     if row.status in {"completed", "failed"}:
         raise AppError("Session is already terminal", status_code=409, error="TERMINAL_SESSION")
+    if is_checker_node(row.current_node_id) and actor not in CHECKER_ADVANCE_ROLES:
+        raise AppError("checker role required", status_code=403, error="FORBIDDEN")
     workflow = await db.get(Workflow, row.workflow_id)
     if not workflow:
         raise AppError("Workflow version gone", status_code=410, error="WIZARD_VERSION_GONE")

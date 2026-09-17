@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { api, ensureDemoSession, getLastRequestId } from '@/api/client';
+import { NavLink, Outlet } from 'react-router-dom';
+import { api, getLastRequestId, retryDemoSession } from '@/api/client';
+import { DEMO_ROLES, useDemoSession } from '@/auth/DemoSession';
 import { toUserMessage } from '@/lib/errors';
 import { signetMeta } from '@/lib/meta';
 
-const DEMO_ROLES = ['operator', 'checker', 'auditor', 'admin'] as const;
-type DemoRole = (typeof DEMO_ROLES)[number];
-
 export default function AppShell() {
-  const navigate = useNavigate();
+  const demo = useDemoSession();
   const meta = signetMeta();
   const [health, setHealth] = useState<'unknown' | 'ok' | 'bad'>('unknown');
   const [healthHint, setHealthHint] = useState<string | null>(null);
-  const [role, setRole] = useState<DemoRole>('operator');
-  const [roleBusy, setRoleBusy] = useState(false);
-  const [resetBusy, setResetBusy] = useState(false);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
 
@@ -35,60 +30,39 @@ export default function AppShell() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      await ensureDemoSession('operator');
-      if (!cancelled) {
-        try {
-          const me = await api.authMe();
-          if (DEMO_ROLES.includes(me.role as DemoRole)) setRole(me.role as DemoRole);
-        } catch {
-          /* cookie optional; API key still works locally */
-        }
-        await ping();
-      }
-    })();
     const timer = window.setInterval(() => {
-      void ping();
+      if (demo.status === 'failed') {
+        void retryDemoSession().catch(() => {
+          /* keep kernel-down */
+        });
+        return;
+      }
+      if (demo.status === 'ready') void ping();
     }, 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [ping]);
+    return () => window.clearInterval(timer);
+  }, [demo.status, ping]);
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('signet:role', { detail: { role } }));
-  }, [role]);
+    if (demo.status === 'ready') void ping();
+  }, [demo.status, ping]);
 
-  async function switchRole(next: DemoRole) {
-    setRoleBusy(true);
-    try {
-      await ensureDemoSession(next);
-      setRole(next);
-    } catch (err) {
-      setHealthHint(toUserMessage(err, 'operator'));
-    } finally {
-      setRoleBusy(false);
-    }
-  }
-
-  async function resetDemo() {
-    if (!window.confirm('Reset demo data for this visitor?')) return;
-    setResetBusy(true);
-    try {
-      await api.resetDemo();
-      setHealthHint(null);
-      navigate('/');
-      window.dispatchEvent(new Event('signet:demo-reset'));
-    } catch (err) {
-      setHealthHint(toUserMessage(err, 'operator'));
-    } finally {
-      setResetBusy(false);
-    }
-  }
-
-  const healthLabel = health === 'ok' ? 'Kernel reachable' : health === 'bad' ? 'Kernel is down' : 'Checking kernel';
+  const warming = demo.status === 'pending' || demo.status === 'warming';
+  const down = demo.status === 'failed' || (demo.status === 'ready' && health === 'bad');
+  const healthLabel = warming
+    ? 'Kernel warming…'
+    : down
+      ? 'Kernel is down'
+      : health === 'ok'
+        ? 'Kernel reachable'
+        : 'Checking kernel';
+  const bannerText = warming
+    ? 'Kernel warming…'
+    : demo.status === 'failed'
+      ? 'Kernel is down'
+      : health === 'bad'
+        ? healthHint
+        : null;
+  const bannerTone = warming ? 'warn' : bannerText ? 'error' : null;
 
   return (
     <div className="shell">
@@ -103,7 +77,7 @@ export default function AppShell() {
             </span>
             <p className="brand__title">Signet</p>
           </div>
-          <p className="brand__sub">Exception console</p>
+          <p className="brand__sub">Governed action kernel</p>
         </div>
         <nav className="nav" aria-label="Primary">
           <div className="nav__label">Work</div>
@@ -127,10 +101,10 @@ export default function AppShell() {
         <div className="rail__foot">
           <div className="syscard" data-testid="system-card">
             <div className="health" role="status">
-              <span className={`led ${health === 'ok' ? 'is-ok' : health === 'bad' ? 'is-bad' : ''}`} />
+              <span className={`led ${warming ? 'is-wait' : health === 'ok' && !down ? 'is-ok' : down ? 'is-bad' : ''}`} />
               {healthLabel}
             </div>
-            {health === 'bad' && healthHint ? <p className="health__hint">{healthHint}</p> : null}
+            {down && healthHint && demo.status === 'ready' ? <p className="health__hint">{healthHint}</p> : null}
             <p className="syscard__meta">
               <span>{latencyMs != null ? `${latencyMs}ms` : '—'}</span>
               <span className="mono" title={requestId ?? undefined}>
@@ -151,10 +125,10 @@ export default function AppShell() {
               <button
                 key={item}
                 type="button"
-                className={`btn btn--small ${role === item ? 'btn--gold' : ''}`}
-                disabled={roleBusy}
+                className={`btn btn--small ${demo.role === item ? 'btn--gold' : ''}`}
+                disabled={demo.roleBusy || demo.status !== 'ready'}
                 data-testid={`role-${item}`}
-                onClick={() => void switchRole(item)}
+                onClick={() => void demo.switchRole(item)}
               >
                 {item}
               </button>
@@ -164,17 +138,22 @@ export default function AppShell() {
             className="btn btn--wide"
             type="button"
             data-testid="reset-demo"
-            disabled={resetBusy}
-            onClick={() => void resetDemo()}
+            disabled={demo.resetBusy || demo.status !== 'ready'}
+            onClick={demo.openResetConfirm}
           >
-            {resetBusy ? 'Resetting…' : 'Reset demo'}
+            {demo.resetBusy ? 'Resetting…' : 'Reset demo'}
           </button>
         </div>
       </aside>
       <div className="stage" id="main" tabIndex={-1}>
-        {health === 'bad' ? (
+        {bannerTone === 'warn' && bannerText ? (
+          <p className="banner banner--warn" role="status">
+            {bannerText}
+          </p>
+        ) : null}
+        {bannerTone === 'error' && bannerText ? (
           <p className="banner banner--error" role="alert">
-            {healthHint}
+            {bannerText}
           </p>
         ) : null}
         <Outlet />

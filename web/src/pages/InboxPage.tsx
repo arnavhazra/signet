@@ -2,15 +2,18 @@ import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from 'r
 import { useNavigate } from 'react-router-dom';
 import { api, unwrapInbox } from '@/api/client';
 import type { InboxItem } from '@/api/types';
+import { useDemoSession } from '@/auth/DemoSession';
 import StatusPill from '@/components/StatusPill';
 import { useTour } from '@/components/Tour';
 import { toUserMessage } from '@/lib/errors';
+import { pickTourRow } from '@/lib/inbox';
 import { formatAge, formatDisplay, formatSigned, inboxStatus } from '@/lib/presentation';
 
 const FRAME_KEY = 'signet.inbox.frame';
 
 export default function InboxPage() {
   const navigate = useNavigate();
+  const demo = useDemoSession();
   const { active, resumable, start } = useTour();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +29,13 @@ export default function InboxPage() {
   }, []);
 
   useEffect(() => {
+    if (demo.status === 'failed') {
+      setReady(true);
+      return;
+    }
+    if (demo.status !== 'ready') return;
     let cancelled = false;
+    setReady(false);
     void refresh().catch((err: unknown) => {
       if (!cancelled) {
         setError(toUserMessage(err, 'operator'));
@@ -36,11 +45,12 @@ export default function InboxPage() {
     return () => {
       cancelled = true;
     };
-  }, [refresh]);
+  }, [demo.status, refresh]);
 
   useEffect(() => {
     const onReset = () => {
       setReady(false);
+      setError(null);
       void refresh().catch((err: unknown) => {
         setError(toUserMessage(err, 'operator'));
         setReady(true);
@@ -80,6 +90,7 @@ export default function InboxPage() {
   }
 
   const tourRowId = pickTourRow(items);
+  const showResetCta = ready && demo.status === 'ready' && (items.length === 0 || !tourRowId);
 
   return (
     <>
@@ -87,7 +98,7 @@ export default function InboxPage() {
         <div>
           <p className="kicker">Inbox</p>
           <h1>Exception review</h1>
-          <p className="lede">Book vs custodian breaks. Click a row to decide.</p>
+          <p className="lede">Book vs custodian breaks. The kernel acts with oversight.</p>
         </div>
         <div className="row">
           {active ? null : (
@@ -95,7 +106,7 @@ export default function InboxPage() {
               {resumable ? 'Continue tour' : 'Start tour'}
             </button>
           )}
-          <button className="btn" type="button" onClick={() => void onRefresh()} disabled={busy}>
+          <button className="btn" type="button" onClick={() => void onRefresh()} disabled={busy || demo.status !== 'ready'}>
             Refresh
           </button>
         </div>
@@ -105,13 +116,13 @@ export default function InboxPage() {
         <summary>What this kernel does</summary>
         <ol className="thesis">
           <li>
-            <strong>Ingest.</strong> Book vs custodian events become a versioned session. Delta is not computed here.
+            <strong>Ingest.</strong> Book vs custodian events become a versioned session. Delta is derived on the server.
           </li>
           <li>
-            <strong>Halt.</strong> High-delta writes wait for maker, then checker.
+            <strong>Halt.</strong> High-delta writes wait for maker, then checker. Agents propose; they do not write.
           </li>
           <li>
-            <strong>Write.</strong> Tools persist only with an audit row. Replay is the frozen card.
+            <strong>Audited write.</strong> Tools persist only with an audit row. The kernel acts with oversight.
           </li>
         </ol>
       </details>
@@ -119,6 +130,23 @@ export default function InboxPage() {
       {error ? (
         <p className="banner banner--error" role="alert">
           {error}
+        </p>
+      ) : null}
+
+      {showResetCta ? (
+        <p className="banner banner--warn" role="status">
+          {items.length === 0
+            ? 'No exceptions in queue.'
+            : 'No open high-delta exception-review row.'}{' '}
+          Reset the demo to reseed.
+          <button
+            className="btn btn--small"
+            type="button"
+            style={{ marginLeft: 12 }}
+            onClick={demo.openResetConfirm}
+          >
+            Reset demo
+          </button>
         </p>
       ) : null}
 
@@ -157,6 +185,7 @@ export default function InboxPage() {
                       data-delta={Number.isFinite(delta) ? String(delta) : ''}
                       data-status={status}
                       data-account={item.accountId}
+                      data-workflow={item.workflowSlug}
                       data-tour={item.sessionId === tourRowId ? 'high-delta' : undefined}
                       onClick={() => openSession(item.sessionId)}
                       onKeyDown={(event) => {
@@ -224,20 +253,4 @@ function readFrameOpen(): boolean {
   } catch {
     return true;
   }
-}
-
-function pickTourRow(items: InboxItem[]): string | null {
-  if (items.length === 0) return null;
-  const score = (item: InboxItem) => {
-    const status = inboxStatus(item.status, item.awaitingChecker);
-    const open = status === 'open' ? 1 : 0;
-    const over = Math.abs(Number(item.delta)) >= 100 ? 1 : 0;
-    return open * 2 + over;
-  };
-  const ranked = [...items].sort((a, b) => {
-    const diff = score(b) - score(a);
-    if (diff) return diff;
-    return Math.abs(Number(b.delta)) - Math.abs(Number(a.delta));
-  });
-  return ranked[0].sessionId;
 }

@@ -18,7 +18,10 @@ export function toUserMessage(
   err: unknown,
   surface: 'operator' | 'admin' | 'auditor' = 'operator',
 ): string {
-  if (isNetworkFailure(err)) return 'Kernel unreachable.';
+  if (isNetworkFailure(err)) {
+    if (err instanceof ApiError && /kernel is down/i.test(err.message)) return 'Kernel is down';
+    return 'Kernel unreachable.';
+  }
 
   if (err instanceof ApiError) {
     if (err.status === 403) {

@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "build": "npm --prefix web ci && npm --prefix web run build",
-    "test:e2e": "npm --prefix web exec -- playwright test"
+    "test:e2e": "npm --prefix web exec -- playwright test",
+    "test:e2e:prod": "npm --prefix web run test:e2e:prod"
   }
 }

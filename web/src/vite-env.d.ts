@@ -3,7 +3,6 @@
 interface ImportMetaEnv {
   readonly VITE_API_URL: string;
   readonly VITE_API_KEY: string;
-  readonly VITE_DEMO_ADMIN_JWT: string;
 }
 
 interface ImportMeta {
@@ -26,5 +25,5 @@ interface SignetSessionTourDetail {
 interface WindowEventMap {
   'signet:session': CustomEvent<SignetSessionTourDetail>;
   'signet:role': CustomEvent<{ role: string }>;
-  'signet:demo-reset': Event;
+  'signet:demo-reset': CustomEvent<{ source?: string }>;
 }

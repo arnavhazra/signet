@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import apply_org_guc
 from app.logging import get_logger
 from app.models.entities import AuditEvent, ExceptionEventRow, Remediation, WorkflowSession
 from app.org import DEMO_ORG_ID, DEMO_ORG_TTL_HOURS
@@ -19,18 +20,34 @@ log = get_logger("demo_tenant")
 
 _SWEEP_KEY = "demo_org_sweep"
 
+# Tour row (INBOX_SEED[0] = A-214) then mixed exception-review rows + one nav-signoff.
+SEED_EVENTS: list[dict[str, Any]] = [*INBOX_SEED, NAV_SIGNOFF_EVENT]
+FAST_INBOX_SIZE = len(SEED_EVENTS)
+
+
+async def _process_seed_event(db: AsyncSession, org_id: str, raw: dict[str, Any]) -> str:
+    snap = await exception_service.process_exception(
+        db, ExceptionEvent.model_validate(raw), bus=None, org_id=org_id, actor="seed"
+    )
+    return snap["sessionId"]
+
+
+async def _existing_seed_sources(db: AsyncSession, org_id: str) -> set[str]:
+    rows = (await db.scalars(select(ExceptionEventRow.source).where(ExceptionEventRow.org_id == org_id))).all()
+    return {source for source in rows if source}
+
 
 async def seed_inbox_for_org(db: AsyncSession, org_id: str) -> list[str]:
+    """Seed tour A-214 first (commit), then mixed rows + nav. Idempotent by source."""
+    existing = await _existing_seed_sources(db, org_id)
+    missing = [raw for raw in SEED_EVENTS if raw["source"] not in existing]
     session_ids: list[str] = []
-    for raw in INBOX_SEED:
-        snap = await exception_service.process_exception(
-            db, ExceptionEvent.model_validate(raw), bus=None, org_id=org_id, actor="seed"
-        )
-        session_ids.append(snap["sessionId"])
-    nav_snap = await exception_service.process_exception(
-        db, ExceptionEvent.model_validate(NAV_SIGNOFF_EVENT), bus=None, org_id=org_id, actor="seed"
-    )
-    session_ids.append(nav_snap["sessionId"])
+    for index, raw in enumerate(missing):
+        session_ids.append(await _process_seed_event(db, org_id, raw))
+        # Persist the tour row before remaining DAGs so a Hobby 504 still leaves A-214.
+        if index == 0:
+            await db.commit()
+            await apply_org_guc(db, org_id)
     return session_ids
 
 
@@ -40,10 +57,11 @@ async def org_session_count(db: AsyncSession, org_id: str) -> int:
 
 
 async def ensure_inbox(db: AsyncSession, org_id: str) -> list[str]:
-    if await org_session_count(db, org_id) > 0:
+    existing = await _existing_seed_sources(db, org_id)
+    if all(raw["source"] in existing for raw in SEED_EVENTS):
         return []
     ids = await seed_inbox_for_org(db, org_id)
-    log.info("demo_inbox_seeded", org_id=org_id, sessions=len(ids))
+    log.info("demo_inbox_seeded", org_id=org_id, sessions=len(ids), total=FAST_INBOX_SIZE)
     return ids
 
 

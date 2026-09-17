@@ -1,5 +1,5 @@
 {
-  "name": "forge-runtime-web",
+  "name": "signet-web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 4173 --host 127.0.0.1",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:prod": "PLAYWRIGHT_BASE_URL=https://signet-pearl-iota.vercel.app playwright test"
   },
   "dependencies": {
     "react": "^19.1.1",

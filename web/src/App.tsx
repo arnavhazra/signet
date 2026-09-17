@@ -1,4 +1,5 @@
 import { Route, Routes } from 'react-router-dom';
+import { DemoSessionProvider } from '@/auth/DemoSession';
 import AppShell from '@/components/AppShell';
 import Tour, { TourProvider } from '@/components/Tour';
 import AdminPage from '@/pages/AdminPage';
@@ -11,19 +12,21 @@ import SessionPage from '@/pages/SessionPage';
 
 export default function App() {
   return (
-    <TourProvider>
-      <Tour />
-      <Routes>
-        <Route element={<AppShell />}>
-          <Route path="/" element={<InboxPage />} />
-          <Route path="/agent" element={<AgentPage />} />
-          <Route path="/sessions/:id" element={<SessionPage />} />
-          <Route path="/sessions/:id/replay" element={<ReplayPage />} />
-          <Route path="/audit" element={<AuditPage />} />
-          <Route path="/admin" element={<AdminPage />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Route>
-      </Routes>
-    </TourProvider>
+    <DemoSessionProvider>
+      <TourProvider>
+        <Tour />
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path="/" element={<InboxPage />} />
+            <Route path="/agent" element={<AgentPage />} />
+            <Route path="/sessions/:id" element={<SessionPage />} />
+            <Route path="/sessions/:id/replay" element={<ReplayPage />} />
+            <Route path="/audit" element={<AuditPage />} />
+            <Route path="/admin" element={<AdminPage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Route>
+        </Routes>
+      </TourProvider>
+    </DemoSessionProvider>
   );
 }

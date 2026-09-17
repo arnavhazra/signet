@@ -27,6 +27,16 @@ function toolName(event: AuditEvent): string | null {
   return payload ? stringish(payload.tool) : null;
 }
 
+export type AuditKindGroup = 'agent' | 'human' | 'write' | 'other';
+
+export function auditGroup(kind: string): AuditKindGroup {
+  const key = kind.trim().toLowerCase();
+  if (key.startsWith('agent.')) return 'agent';
+  if (key === 'human.decision' || key === 'input.received') return 'human';
+  if (key === 'remediation.written') return 'write';
+  return 'other';
+}
+
 export function auditKind(event: AuditEvent, index: number): string {
   return (
     stringish(event.eventType) ??

@@ -60,7 +60,10 @@ export default function SettingsPanel({ open, onClose }: Props) {
                 setForm((prev) => ({ ...prev, apiKey: event.target.value }))
               }
             />
-            <p className="help">Sent as X-API-Key on /v1/*. Default is the public demo key.</p>
+            <p className="help">
+              Optional. The live console uses the demo cookie, not this key. Do not send a key on the
+              public demo — it joins the shared org.
+            </p>
           </div>
           <div className="field">
             <label htmlFor="admin-jwt">Admin JWT</label>
@@ -75,8 +78,8 @@ export default function SettingsPanel({ open, onClose }: Props) {
               onChange={(event) => setForm((prev) => ({ ...prev, jwt: event.target.value }))}
             />
             <p className="help">
-              Sent as Authorization Bearer on /admin/*. Demo token matches JWT_SECRET in
-              .env.example. Production would inject this from an IdP.
+              Unused by the live console. Switch the Role control to admin — the demo cookie is the
+              credential. A baked JWT will 401 against production.
             </p>
           </div>
           <div className="row">

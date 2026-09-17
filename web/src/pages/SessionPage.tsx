@@ -17,6 +17,19 @@ import StatusPill from '@/components/StatusPill';
 import { toUserMessage } from '@/lib/errors';
 import { isTerminalStatus } from '@/lib/presentation';
 
+function emitSessionTour(snapshot: SessionSnapshot): void {
+  window.dispatchEvent(
+    new CustomEvent('signet:session', {
+      detail: {
+        sessionId: snapshot.sessionId,
+        status: snapshot.status,
+        awaitingChecker: Boolean(snapshot.awaitingChecker) || snapshot.status === 'awaiting_checker',
+        terminal: isTerminalStatus(snapshot.status),
+      },
+    }),
+  );
+}
+
 export default function SessionPage() {
   const { id = '' } = useParams();
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
@@ -31,6 +44,7 @@ export default function SessionPage() {
     const next = await api.getSession(sessionId);
     setSnapshot(next);
     setRequestId(getLastRequestId());
+    emitSessionTour(next);
     try {
       const raw = await api.getAudit(sessionId);
       setAudit(unwrapAudit(raw));
@@ -55,6 +69,15 @@ export default function SessionPage() {
     return () => {
       cancelled = true;
     };
+  }, [id, loadSession]);
+
+  useEffect(() => {
+    const onRole = () => {
+      if (!id) return;
+      void loadSession(id).catch((err: unknown) => setError(toUserMessage(err, 'operator')));
+    };
+    window.addEventListener('signet:role', onRole);
+    return () => window.removeEventListener('signet:role', onRole);
   }, [id, loadSession]);
 
   const awaitingHuman = Boolean(snapshot?.currentNode);
@@ -84,6 +107,7 @@ export default function SessionPage() {
       setRequestId(getLastRequestId());
       const next = isSessionSnapshot(posted) ? posted : await loadSession(snapshot.sessionId);
       setSnapshot(next);
+      emitSessionTour(next);
       const raw = await api.getAudit(snapshot.sessionId);
       setAudit(unwrapAudit(raw));
       setRequestId(getLastRequestId());
@@ -95,7 +119,8 @@ export default function SessionPage() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         try {
-          await loadSession(snapshot.sessionId);
+          const latest = await loadSession(snapshot.sessionId);
+          emitSessionTour(latest);
         } catch {
           /* keep conflict message */
         }

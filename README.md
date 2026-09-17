@@ -34,7 +34,7 @@ Browser
 - **Stripped bindings.** Admin definitions may contain `binding` (`filter_value`, `filter_bracket`, `query_token`). `GET /v1/workflows/{slug}/active`, session snapshots, and replay payloads run through `strip_bindings`. The browser is a renderer; rules stay on the server.
 - **Audit-first tools.** Clients cannot name tools. The DAG names an allowlisted `toolName`. Unknown tools are denied, audited, and produce no side effect. `remediations.audit_event_id` is a required FK.
 - **Agent policy.** `POST /v1/agent/propose` and MCP tools classify intents on the server. Write-class proposals open a HITL session; reads are served and audited; unknown intents are denied with no side effect. Agents cannot name tools or skip dual control.
-- **Roles.** `operator`, `checker`, `admin`, `auditor`. Auditor is GET-only (inbox, session, audit, replay). Operator/checker may ingest, advance, and propose. Admin owns catalog, preview, publish. Runtime API keys cannot publish.
+- **Roles.** `operator`, `checker`, `admin`, `auditor`. Auditor is GET-only (inbox, session, audit, replay). Operator/checker may ingest, advance, and propose. Advancing a `checker*` node (`checker_approval`) requires `checker` or `admin`; an operator receives `403`. Admin owns catalog, preview, publish. Runtime API keys cannot publish.
 - **Auth.** `X-API-Key` on `/v1/*` and `/mcp` for tests and local clients. Demo mode (`DEMO_MODE=1`) issues an HttpOnly `signet_demo` cookie via `GET /v1/auth/demo`. Subsequent `/v1`, `/mcp`, and `/admin` accept cookie, Bearer JWT, or API key. Rate-limit ingest, advance, and propose by IP (and by key when present). `POST /v1/demo/reset` is rate-limited.
 - **RLS and tenancy.** Rows carry `org_id`. Postgres RLS scopes sessions, audit, remediations, and events to the caller’s org. Demo mode mints a per-visitor `org_id` into the `signet_demo` cookie so each visitor gets an isolated inbox.
 
@@ -49,13 +49,15 @@ Every response includes `X-Request-Id` (echo incoming or generate).
 | `/sessions/:id/replay` | Immutable `workflowId` + `version`, stripped contract vs stored citations |
 | `/audit` | Read-only search by account / session / event type |
 | `/admin` | Catalog, lint on preview/publish, stripped contract fetch |
-| `/agent` | Agent console — prompt, typed proposal, policy verdict, audit row, curl / MCP |
+| `/agent` | Agent console — canned Write / Read / Deny, free-text prompt, typed proposal, policy verdict, audit row, curl / MCP |
 
 Seeded workflows: `exception-review` (maker-checker on large deltas) and `nav-signoff` (numeric override then approval). Same kernel, different definition JSON.
 
 ## Agent integration
 
-Agents propose. They never execute a write. Policy on the server decides whether Signet can answer, must open a human session, or must deny. Console: `/agent`. Engineer notes: [`docs/integration.md`](docs/integration.md).
+Agents propose. They never execute a write. Policy on the server decides whether Signet can answer, must open a human session, or must deny.
+
+A Supervisor-class agent (or any MCP client) points at `/mcp`. Signet is a tool that agent can call; it does not replace the agent’s planner. Console: `/agent`. Engineer notes: [`docs/integration.md`](docs/integration.md).
 
 ### Propose
 
@@ -78,7 +80,7 @@ POST /v1/agent/propose
 }
 ```
 
-Optional fields on the request: `text`, `intent`, `accountId`, `params`, `rationale`. `text` is free language; `intent` is already typed. Same response either way.
+Optional fields on the request: `text`, `intent`, `accountId`, `params`, `rationale`. `text` is free language; `intent` is already typed. Same response either way. On `requires_human`, the caller handles `approvalUrl`. The write has not landed.
 
 ### Policy
 
@@ -86,16 +88,44 @@ Optional fields on the request: `text`, `intent`, `accountId`, `params`, `ration
 | --- | --- | --- | --- |
 | Write | `resolve_break`, `adjust_position` | `requires_human` | Opens a HITL session on the existing DAG. The agent gets an approval URL, not a completed write. Audit: `agent.proposed`. |
 | Read | `list_exceptions`, `explain_break` | `auto_executed` | Served directly. Still audited (`agent.proposed`). |
-| Unknown | anything else | `denied` | `agent.denied` audit row. No session, no remediation. |
+| Unknown | anything else (including `delete_everything`) | `denied` | `agent.denied` audit row. No session, no remediation. |
+
+### Canned examples
+
+The `/agent` console ships three chips. Each is the same `POST /v1/agent/propose` contract.
+
+**Write** — `resolve_break` on `A-214`:
+
+```json
+{ "intent": "resolve_break", "accountId": "A-214" }
+```
+
+Decision `requires_human`. Response includes `sessionId` and `approvalUrl`. Audit: `agent.proposed`. Humans still run maker-checker; `remediation.written` happens only after they advance the DAG.
+
+**Read** — `list_exceptions`:
+
+```json
+{ "intent": "list_exceptions" }
+```
+
+Decision `auto_executed`. Inbox payload for the caller’s org is returned. Audit: `agent.proposed`. No session.
+
+**Deny** — unknown intent:
+
+```json
+{ "intent": "delete_everything" }
+```
+
+Decision `denied`. Audit: `agent.denied`. No session, no remediation.
 
 ### MCP
 
-Streamable HTTP at `/mcp`. Auth is the same as `/v1` (`X-API-Key`, Bearer JWT, or demo cookie).
+Streamable HTTP at `/mcp`. A Supervisor-class agent registers this URL as an external MCP server. Auth is the same as `/v1` (`X-API-Key`, Bearer JWT, or demo cookie).
 
 | Tool | Role |
 | --- | --- |
 | `list_exceptions` | Read the open exception inbox |
-| `propose_remediation` | Submit a write-class proposal. Policy still requires a human. |
+| `propose_remediation` | Submit a write-class proposal. Policy still requires a human. The tool returns `approvalUrl`, not a posted write. |
 | `get_session` | Session snapshot; bindings stripped |
 | `get_audit` | Audit events |
 
@@ -130,7 +160,7 @@ Interactive spec: `/openapi.json` (FastAPI `/docs` when served).
 | `POST` | `/v1/events/exceptions` | operator / checker / API key | Ingest. Optional `Idempotency-Key`. Unique `(org_id, source)`. Replay of the same event returns the existing session `200`. Auditor `403`. |
 | `POST` | `/v1/agent/propose` | operator / checker / API key | Body `{ text?, intent?, accountId?, params?, rationale? }`. Policy: write → human, read → served, unknown → denied. See Agent integration. |
 | `GET` | `/v1/sessions/{id}` | operator / checker / auditor / API key | Session snapshot; bindings stripped |
-| `POST` | `/v1/sessions/{id}/advance` | operator / checker / API key | Body `{ inputs, expectedUpdatedAt? }`. Stale version → `409 { error: CONFLICT }`. Auditor `403`. |
+| `POST` | `/v1/sessions/{id}/advance` | operator / checker / API key | Body `{ inputs, expectedUpdatedAt? }`. Stale version → `409 { error: CONFLICT }`. Auditor `403`. A `checker*` node requires `checker` or `admin`; operator → `403`. |
 | `GET` | `/v1/sessions/{id}/audit` | operator / checker / auditor / API key | `{ events }` |
 | `GET` | `/v1/sessions/{id}/replay` | operator / checker / auditor / API key | `{ workflowId, version, slug, stripped, citations, accumulatedAnswers, derived, createdAt }` |
 | `GET` | `/v1/audit` | operator / checker / auditor / API key | Query `accountId`, `eventType`, `sessionId` → `{ events }` |
@@ -149,13 +179,14 @@ Lint rejects cycles and tool nodes missing `toolName` before publish.
 cd runtime && pytest -q          # SQLite in-memory; no network
 ```
 
-Kernel coverage: halt/resume, reject, more-data, maker-checker, second workflow, bindings stripped on active + snapshots, idempotent ingest, concurrent advance `409`, tool deny `403`, lint (cycles, missing `toolName`), auditor cannot POST ingest/advance, auth and rate limit, agent policy (write blocked, read served, unknown denied), MCP list/call, per-visitor org isolation.
+Kernel coverage: halt/resume, reject, more-data, maker-checker, checker-node `403` for operator, second workflow, bindings stripped on active + snapshots, idempotent ingest, concurrent advance `409`, tool deny `403`, lint (cycles, missing `toolName`), auditor cannot POST ingest/advance, auth and rate limit, agent policy (write blocked, read served, unknown denied), MCP list/call, per-visitor org isolation.
 
 ```bash
-cd web && npx playwright test    # inbox → maker-checker → audit → replay → agent
+cd web && npm run test:e2e
+cd web && npm run test:e2e:prod   # https://signet-pearl-iota.vercel.app
 ```
 
-Playwright hits a preview or production URL (or local same-origin). `TESTING=1` is for unit tests only; do not set it against Supabase.
+Playwright covers the interview path: tour FSM, inbox (unique A-214), maker-checker, operator 403 on the checker node, agent Write/Read/Deny + contract, audit, replay, admin strip, authz, 409, `/docs` `/mcp` `/openapi.json`. Local boots `TESTING=1` uvicorn + preview (cookie-first; `API_KEYS=demo-runtime-key`). `PLAYWRIGHT_BASE_URL` hits production; cold start is a 90s kernel wait, not a skip. `TESTING=1` is for unit tests / local Playwright only; do not set it against Supabase.
 
 ## Deploy
 

@@ -63,7 +63,11 @@ export default function ReplayPage() {
           <div className="stack">
             <section className="panel">
               <p className="panel__stamp">Stripped contract</p>
-              <pre className="json-view" data-testid="replay-stripped">
+              <pre
+                className="json-view"
+                data-testid="replay-stripped"
+                data-has-binding={JSON.stringify(replay.stripped).includes('"binding"') ? '1' : '0'}
+              >
                 {JSON.stringify(replay.stripped, null, 2)}
               </pre>
             </section>

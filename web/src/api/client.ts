@@ -1,4 +1,4 @@
-import { readCredentials } from '@/auth/credentials';
+import { isDemoRole, type DemoRole } from '@/auth/demo';
 import type {
   ActiveWorkflow,
   AdminWorkflow,
@@ -82,7 +82,7 @@ function headerRequestId(res: Response): string | null {
   return res.headers.get('X-Request-Id') ?? res.headers.get('x-request-id');
 }
 
-type AuthMode = 'admin' | 'runtime' | 'none';
+type AuthMode = 'session' | 'none';
 
 function queryString(params: Record<string, string | undefined>): string {
   const search = new URLSearchParams();
@@ -93,21 +93,174 @@ function queryString(params: Record<string, string | undefined>): string {
   return text ? `?${text}` : '';
 }
 
-async function request<T>(
-  method: string,
-  path: string,
-  auth: AuthMode,
-  body?: unknown,
-): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  const creds = readCredentials();
+export type DemoRuntimeStatus = 'pending' | 'warming' | 'ready' | 'failed';
 
-  if (auth === 'admin' && creds.jwt.trim()) {
-    headers.Authorization = `Bearer ${creds.jwt.trim()}`;
+export type DemoRuntime = {
+  status: DemoRuntimeStatus;
+  role: DemoRole;
+  error: string | null;
+};
+
+type DemoListener = () => void;
+
+const HEALTH_BUDGET_MS = 45_000;
+const HEALTH_GAP_MS = 1_500;
+
+const demoListeners = new Set<DemoListener>();
+let demoRuntime: DemoRuntime = { status: 'pending', role: 'operator', error: null };
+let bootPromise: Promise<void> | null = null;
+
+export function getDemoRuntime(): DemoRuntime {
+  return demoRuntime;
+}
+
+export function subscribeDemoRuntime(listener: DemoListener): () => void {
+  demoListeners.add(listener);
+  return () => {
+    demoListeners.delete(listener);
+  };
+}
+
+function setDemoRuntime(patch: Partial<DemoRuntime>): void {
+  demoRuntime = { ...demoRuntime, ...patch };
+  demoListeners.forEach((listener) => listener());
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+type AuthMe = { sub: string; role: string; via: string; orgId?: string };
+
+function isCookiePrincipal(me: AuthMe): me is AuthMe & { role: DemoRole } {
+  return me.via === 'cookie' && isDemoRole(me.role);
+}
+
+async function waitForHealth(): Promise<void> {
+  const started = Date.now();
+  setDemoRuntime({ status: 'warming', error: null });
+  let last: unknown = null;
+  while (Date.now() - started < HEALTH_BUDGET_MS) {
+    try {
+      await request<unknown>('GET', '/health', 'none');
+      return;
+    } catch (err) {
+      last = err;
+      await sleep(HEALTH_GAP_MS);
+    }
   }
-  if (auth === 'runtime' && creds.apiKey.trim()) {
-    headers['X-API-Key'] = creds.apiKey.trim();
+  throw last instanceof ApiError ? last : new ApiError('Kernel unreachable', 0, last);
+}
+
+async function readCookieMe(): Promise<AuthMe | null> {
+  try {
+    const me = await request<AuthMe>('GET', '/v1/auth/me', 'none');
+    if (isCookiePrincipal(me)) return me;
+    return null;
+  } catch {
+    return null;
   }
+}
+
+async function mintDemoCookie(role: DemoRole): Promise<AuthMe> {
+  await request<unknown>('GET', `/v1/auth/demo${queryString({ role })}`, 'none');
+  const me = await readCookieMe();
+  if (!me) {
+    throw new ApiError('Demo session failed', 0, null);
+  }
+  return me;
+}
+
+async function boot(): Promise<void> {
+  try {
+    await waitForHealth();
+    const existing = await readCookieMe();
+    if (existing && isDemoRole(existing.role)) {
+      setDemoRuntime({ status: 'ready', role: existing.role, error: null });
+      emitRole(existing.role);
+      return;
+    }
+    const minted = await mintDemoCookie(demoRuntime.role);
+    setDemoRuntime({ status: 'ready', role: minted.role as DemoRole, error: null });
+    emitRole(minted.role as DemoRole);
+  } catch (err) {
+    const message = err instanceof Error && err.message.trim() ? err.message : 'Kernel is down';
+    setDemoRuntime({ status: 'failed', error: message });
+    throw err instanceof ApiError ? err : new ApiError(message, 0, err);
+  }
+}
+
+function emitRole(role: DemoRole): void {
+  window.dispatchEvent(new CustomEvent('signet:role', { detail: { role } }));
+}
+
+export function startDemoSession(): Promise<void> {
+  if (!bootPromise) {
+    bootPromise = boot().catch((err) => {
+      bootPromise = null;
+      throw err;
+    });
+  }
+  return bootPromise;
+}
+
+export async function waitForDemoSession(): Promise<void> {
+  try {
+    await startDemoSession();
+  } catch {
+    throw new ApiError('Kernel is down', 0, null);
+  }
+  if (demoRuntime.status !== 'ready') {
+    throw new ApiError('Kernel is down', 0, null);
+  }
+}
+
+export async function retryDemoSession(): Promise<void> {
+  bootPromise = null;
+  setDemoRuntime({ status: 'pending', error: null });
+  await startDemoSession();
+}
+
+/**
+ * Mint or refresh the demo cookie for an explicit role switch.
+ * Does not remint on its own — callers must invoke this.
+ * Always re-emits `signet:role`, even when the role is unchanged.
+ */
+export async function switchDemoRole(role: DemoRole): Promise<void> {
+  await waitForDemoSession();
+  const me = await mintDemoCookie(role);
+  const next = isDemoRole(me.role) ? me.role : role;
+  setDemoRuntime({ status: 'ready', role: next, error: null });
+  emitRole(next);
+}
+
+export async function resetDemoVisitor(): Promise<void> {
+  await waitForDemoSession();
+  await mintDemoCookie('operator');
+  setDemoRuntime({ status: 'ready', role: 'operator', error: null });
+  emitRole('operator');
+  await request<unknown>('POST', '/v1/demo/reset', 'session');
+}
+
+/** @deprecated Use startDemoSession / switchDemoRole. Kept so older call sites compile during the swap. */
+export async function ensureDemoSession(role?: DemoRole): Promise<void> {
+  if (!role) {
+    await waitForDemoSession();
+    return;
+  }
+  await switchDemoRole(role);
+}
+
+async function request<T>(method: string, path: string, auth: AuthMode, body?: unknown): Promise<T> {
+  if (auth === 'session') {
+    await waitForDemoSession();
+  }
+
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  // Cookie only. Never attach X-API-Key or a baked admin JWT — production would
+  // fall through to the shared org (or 401 against a different JWT_SECRET).
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
@@ -270,9 +423,9 @@ export const api = {
 
   demoAuth: (role = 'operator') => request<unknown>('GET', `/v1/auth/demo${queryString({ role })}`, 'none'),
 
-  authMe: () => request<{ sub: string; role: string; via: string }>('GET', '/v1/auth/me', 'runtime'),
+  authMe: () => request<AuthMe>('GET', '/v1/auth/me', 'none'),
 
-  listInbox: () => request<unknown>('GET', '/v1/inbox', 'runtime'),
+  listInbox: () => request<unknown>('GET', '/v1/inbox', 'session'),
 
   searchAudit: (query: AuditQuery) =>
     request<unknown>(
@@ -282,61 +435,48 @@ export const api = {
         eventType: query.eventType,
         sessionId: query.sessionId,
       })}`,
-      'runtime',
+      'session',
     ),
 
   getReplay: (id: string) =>
-    request<SessionReplay>('GET', `/v1/sessions/${encodeURIComponent(id)}/replay`, 'runtime'),
+    request<SessionReplay>('GET', `/v1/sessions/${encodeURIComponent(id)}/replay`, 'session'),
 
-  listWorkflows: () => request<unknown>('GET', '/admin/workflows', 'admin'),
+  listWorkflows: () => request<unknown>('GET', '/admin/workflows', 'session'),
 
   createWorkflow: (body: CreateWorkflowRequest) =>
-    request<AdminWorkflow>('POST', '/admin/workflows', 'admin', body),
+    request<AdminWorkflow>('POST', '/admin/workflows', 'session', body),
 
   getWorkflow: (id: string) =>
-    request<AdminWorkflow>('GET', `/admin/workflows/${encodeURIComponent(id)}`, 'admin'),
+    request<AdminWorkflow>('GET', `/admin/workflows/${encodeURIComponent(id)}`, 'session'),
 
   previewWorkflow: (id: string, body: PreviewRequest) =>
-    request<unknown>(
-      'POST',
-      `/admin/workflows/${encodeURIComponent(id)}/preview`,
-      'admin',
-      body,
-    ),
+    request<unknown>('POST', `/admin/workflows/${encodeURIComponent(id)}/preview`, 'session', body),
 
   publishWorkflow: (id: string) =>
-    request<unknown>('POST', `/admin/workflows/${encodeURIComponent(id)}/publish`, 'admin'),
+    request<unknown>('POST', `/admin/workflows/${encodeURIComponent(id)}/publish`, 'session'),
 
   getActiveWorkflow: (slug: string) =>
-    request<ActiveWorkflow>('GET', `/v1/workflows/${encodeURIComponent(slug)}/active`, 'runtime'),
+    request<ActiveWorkflow>('GET', `/v1/workflows/${encodeURIComponent(slug)}/active`, 'session'),
 
   injectException: (body: ExceptionEvent) =>
-    request<unknown>('POST', '/v1/events/exceptions', 'runtime', body),
+    request<unknown>('POST', '/v1/events/exceptions', 'session', body),
 
   getSession: (id: string) =>
-    request<SessionSnapshot>('GET', `/v1/sessions/${encodeURIComponent(id)}`, 'runtime'),
+    request<SessionSnapshot>('GET', `/v1/sessions/${encodeURIComponent(id)}`, 'session'),
 
   advanceSession: (id: string, body: AdvanceRequest) =>
-    request<unknown>('POST', `/v1/sessions/${encodeURIComponent(id)}/advance`, 'runtime', body),
+    request<unknown>('POST', `/v1/sessions/${encodeURIComponent(id)}/advance`, 'session', body),
 
   getAudit: (id: string) =>
-    request<unknown>('GET', `/v1/sessions/${encodeURIComponent(id)}/audit`, 'runtime'),
+    request<unknown>('GET', `/v1/sessions/${encodeURIComponent(id)}/audit`, 'session'),
 
   proposeAgent: async (body: AgentProposeRequest) => {
-    const data = await request<unknown>('POST', '/v1/agent/propose', 'runtime', body);
+    const data = await request<unknown>('POST', '/v1/agent/propose', 'session', body);
     return normalizeAgentPropose(data);
   },
 
-  resetDemo: () => request<unknown>('POST', '/v1/demo/reset', 'runtime'),
+  resetDemo: () => request<unknown>('POST', '/v1/demo/reset', 'session'),
 };
-
-export async function ensureDemoSession(role = 'operator'): Promise<void> {
-  try {
-    await api.demoAuth(role);
-  } catch {
-    /* Cookie auth is optional; X-API-Key fallback still works locally. */
-  }
-}
 
 export function unwrapInbox(data: unknown): InboxItem[] {
   return unwrapList<InboxItem>(data).filter((item) => item && typeof item.sessionId === 'string');

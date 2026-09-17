@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { AuditEvent } from '@/api/types';
-import { explainAudit } from '@/lib/audit';
+import { auditGroup, explainAudit } from '@/lib/audit';
 import { formatDisplay } from '@/lib/presentation';
 
 type Props = {
@@ -16,8 +16,8 @@ export default function AuditLog({ events }: Props) {
         Audit trail
       </p>
       <p className="help">
-        Plain English of what the kernel recorded. Raw event types stay one click away for the
-        engineering walkthrough.
+        Agent proposals, human decisions, and remediation writes are distinct rows. Raw event types stay one click
+        away.
       </p>
       {events.length === 0 ? (
         <p className="empty">No audit events returned for this session.</p>
@@ -26,8 +26,14 @@ export default function AuditLog({ events }: Props) {
           <ol className="audit-list">
             {events.map((event, index) => {
               const view = explainAudit(event, index);
+              const group = auditGroup(view.rawType);
               return (
-                <li key={view.id}>
+                <li
+                  key={view.id}
+                  className={`audit-list__item is-${group}`}
+                  data-audit-kind={group}
+                  data-event-type={view.rawType}
+                >
                   <div className="audit-list__headline">{view.headline}</div>
                   <div className="audit-list__meta">
                     {[view.when, view.rawType].filter(Boolean).join(' · ')}
@@ -50,9 +56,10 @@ export default function AuditLog({ events }: Props) {
             <ol className="audit-list audit-list--raw">
               {events.map((event, index) => {
                 const view = explainAudit(event, index);
+                const group = auditGroup(view.rawType);
                 const detail = event.detail !== undefined ? event.detail : event.payload;
                 return (
-                  <li key={`raw-${view.id}`}>
+                  <li key={`raw-${view.id}`} data-audit-kind={group} data-event-type={view.rawType}>
                     <div className="mono">{view.rawType}</div>
                     <div className="audit-list__meta">{view.when ?? '—'}</div>
                     {detail !== undefined ? (

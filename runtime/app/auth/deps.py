@@ -148,6 +148,15 @@ def resolve_principal(
     cookie_principal = _from_cookie(request, settings)
     if cookie_principal:
         return cookie_principal
+    # Public SPA path is GET /v1/auth/demo → HttpOnly cookie. Do not fall through
+    # to shared org_signet_demo via API key on a cookie-less production tab.
+    if settings.DEMO_MODE:
+        raise AppError(
+            "Demo session required. Call GET /v1/auth/demo to mint a cookie; "
+            "API key does not join the shared demo org.",
+            status_code=401,
+            error="UNAUTHORIZED",
+        )
     key = require_api_key(x_api_key, settings)
     return Principal(
         sub="api-key",

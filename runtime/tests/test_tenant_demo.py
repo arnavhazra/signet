@@ -7,7 +7,43 @@ from sqlalchemy import select
 
 from app import db as database
 from app.models.entities import WorkflowSession
+from app.org import CHECKER_THRESHOLD, DEMO_ORG_ID
+from app.seeds.exception_review import HIGH_DELTA_EXCEPTION, INBOX_SEED
+from app.seeds.nav_signoff import NAV_SIGNOFF_EVENT
 from app.services import demo_tenant
+from app.services.demo_tenant import FAST_INBOX_SIZE, SEED_EVENTS
+
+
+def test_inbox_seed_unique_high_delta_a214():
+    accounts = [row["accountId"] for row in INBOX_SEED]
+    assert INBOX_SEED[0] is HIGH_DELTA_EXCEPTION
+    assert INBOX_SEED[0]["accountId"] == "A-214"
+    assert accounts.count("A-214") == 1
+    assert len(accounts) == len(set(accounts))
+    delta = abs(INBOX_SEED[0]["bookQty"] - INBOX_SEED[0]["custodianQty"])
+    assert delta >= CHECKER_THRESHOLD
+    seed_accounts = [row["accountId"] for row in SEED_EVENTS]
+    assert seed_accounts.count("A-214") == 1
+    assert len(seed_accounts) == len(set(seed_accounts))
+    assert SEED_EVENTS[-1] is NAV_SIGNOFF_EVENT
+    assert FAST_INBOX_SIZE == 4
+
+
+async def test_demo_inbox_unique_a214_tour_row(demo_client):
+    auth = await demo_client.get("/v1/auth/demo")
+    assert auth.status_code == 200
+    inbox = await demo_client.get("/v1/inbox")
+    assert inbox.status_code == 200
+    items = inbox.json()["items"]
+    assert len(items) == FAST_INBOX_SIZE
+    accounts = [row["accountId"] for row in items]
+    assert accounts.count("A-214") == 1
+    assert len(accounts) == len(set(accounts))
+    tour = next(row for row in items if row["accountId"] == "A-214")
+    assert tour["workflowSlug"] == "exception-review"
+    assert tour["status"] == "open"
+    assert abs(float(tour["delta"])) >= CHECKER_THRESHOLD
+    assert any(row["workflowSlug"] == "nav-signoff" for row in items)
 
 
 async def test_demo_mints_org_and_keeps_it_on_role_switch(demo_client):
@@ -20,7 +56,7 @@ async def test_demo_mints_org_and_keeps_it_on_role_switch(demo_client):
     inbox = await demo_client.get("/v1/inbox")
     assert inbox.status_code == 200
     items = inbox.json()["items"]
-    assert len(items) >= 10
+    assert len(items) == 4
     checker = await demo_client.get("/v1/auth/demo", params={"role": "checker"})
     assert checker.json()["role"] == "checker"
     assert checker.json()["orgId"] == org_id
@@ -50,6 +86,8 @@ async def test_org_a_cannot_read_org_b_inbox(demo_app):
             assert denied.status_code == 404
             audit = await client_a.get(f"/v1/sessions/{foreign}/audit")
             assert audit.status_code == 404
+            assert a_auth.json()["orgId"] != DEMO_ORG_ID
+            assert b_auth.json()["orgId"] != DEMO_ORG_ID
 
 
 async def test_demo_reset_reseeds(demo_client):
@@ -60,7 +98,7 @@ async def test_demo_reset_reseeds(demo_client):
     reset = await demo_client.post("/v1/demo/reset")
     assert reset.status_code == 200, reset.text
     assert reset.json()["ok"] is True
-    assert reset.json()["sessions"] >= 10
+    assert reset.json()["sessions"] == 4
     second = await demo_client.get("/v1/inbox")
     after = {row["sessionId"] for row in second.json()["items"]}
     assert after

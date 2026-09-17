@@ -10,6 +10,30 @@ type Tab = 'console' | 'contract';
 
 const SAMPLE_TEXT = 'Resolve the book vs custodian break on A-214';
 
+const CHIPS: { id: string; label: string; testId: string; body: AgentProposeRequest; prompt: string }[] = [
+  {
+    id: 'write',
+    label: 'Write',
+    testId: 'agent-chip-write',
+    prompt: SAMPLE_TEXT,
+    body: { intent: 'resolve_break', accountId: 'A-214', text: SAMPLE_TEXT },
+  },
+  {
+    id: 'read',
+    label: 'Read',
+    testId: 'agent-chip-read',
+    prompt: 'List exceptions',
+    body: { intent: 'list_exceptions', text: 'List exceptions' },
+  },
+  {
+    id: 'deny',
+    label: 'Deny',
+    testId: 'agent-chip-deny',
+    prompt: 'delete_everything',
+    body: { intent: 'delete_everything', text: 'delete_everything' },
+  },
+];
+
 export default function AgentPage() {
   const [tab, setTab] = useState<Tab>('console');
   const [text, setText] = useState('');
@@ -19,13 +43,13 @@ export default function AgentPage() {
   const [lastBody, setLastBody] = useState<AgentProposeRequest>({ text: SAMPLE_TEXT });
   const [requestId, setRequestId] = useState<string | null>(null);
 
-  async function propose() {
-    const body: AgentProposeRequest = { text: text.trim() || SAMPLE_TEXT };
+  async function propose(body?: AgentProposeRequest) {
+    const payload: AgentProposeRequest = body ?? { text: text.trim() || SAMPLE_TEXT };
     setBusy(true);
     setError(null);
-    setLastBody(body);
+    setLastBody(payload);
     try {
-      const next = await api.proposeAgent(body);
+      const next = await api.proposeAgent(payload);
       setResult(next);
       setRequestId(getLastRequestId());
     } catch (err) {
@@ -61,7 +85,7 @@ export default function AgentPage() {
         <div>
           <p className="kicker">Agent</p>
           <h1>Propose</h1>
-          <p className="lede">Agents propose. Policy decides. Writes never skip dual control.</p>
+          <p className="lede">Agents propose. Policy is server-side. The kernel acts with oversight.</p>
         </div>
       </header>
 
@@ -101,7 +125,27 @@ export default function AgentPage() {
           <div className="stack">
             <form className="panel" onSubmit={onSubmit}>
               <p className="panel__stamp">Prompt</p>
-              <div className="field">
+              <div className="row chips" role="group" aria-label="Canned intents">
+                {CHIPS.map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    className="btn btn--small"
+                    data-testid={chip.testId}
+                    disabled={busy}
+                    onClick={() => {
+                      setText(chip.prompt);
+                      void propose(chip.body);
+                    }}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+              <p className="help" style={{ marginTop: 8 }}>
+                Write = resolve_break A-214 · Read = list_exceptions · Deny = delete_everything
+              </p>
+              <div className="field" style={{ marginTop: 12 }}>
                 <label htmlFor="agent-prompt">Free text</label>
                 <textarea
                   id="agent-prompt"
@@ -141,6 +185,7 @@ export default function AgentPage() {
             <section
               className={`panel verdict verdict--${decisionTone(result?.decision)}`}
               data-testid="agent-verdict"
+              data-decision={result?.decision ?? ''}
               aria-live="polite"
             >
               <p className="panel__stamp">Policy verdict</p>

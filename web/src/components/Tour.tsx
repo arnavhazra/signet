@@ -10,8 +10,9 @@ import {
   type ReactNode,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-
-const STORAGE_KEY = 'signet.tour.v1';
+import { getDemoRuntime } from '@/api/client';
+import { useDemoSession } from '@/auth/DemoSession';
+import { TOUR_STORAGE_KEY } from '@/lib/tourStorage';
 
 export type TourStepId =
   | 'inbox'
@@ -23,13 +24,22 @@ export type TourStepId =
   | 'replay'
   | 'agent';
 
+type TourSignal =
+  | 'row-open'
+  | 'awaitingChecker'
+  | 'checkerRole'
+  | 'terminal'
+  | 'auditWritten'
+  | 'replayStripped'
+  | 'requiresHuman';
+
 type TourStep = {
   id: TourStepId;
   title: string;
   body: string;
   target: string | null;
   action?: 'click';
-  wait?: 'awaiting_checker' | 'checker-role' | 'terminal';
+  signal?: TourSignal;
 };
 
 type StoredTour = {
@@ -45,10 +55,15 @@ type TourContextValue = {
   stepCount: number;
   sessionId: string | null;
   resumable: boolean;
+  canNext: boolean;
+  missing: boolean;
+  waitingHint: string | null;
+  nextLabel: string;
   start: () => void;
   skip: () => void;
   back: () => void;
   next: () => void;
+  restart: () => void;
 };
 
 const STEPS: TourStep[] = [
@@ -56,14 +71,15 @@ const STEPS: TourStep[] = [
     id: 'inbox',
     title: 'Inbox',
     body: 'Book vs custodian breaks. Delta is computed on the server.',
-    target: '[data-testid="inbox-table"]',
+    target: '[data-tour="high-delta"]',
   },
   {
     id: 'high-delta',
     title: 'High-delta row',
-    body: 'Open a break over the dual-control threshold.',
+    body: 'Open an exception-review break over the dual-control threshold.',
     target: '[data-tour="high-delta"]',
     action: 'click',
+    signal: 'row-open',
   },
   {
     id: 'maker',
@@ -71,7 +87,7 @@ const STEPS: TourStep[] = [
     body: 'Accept as maker. Remediation does not write yet.',
     target: '[data-testid="action-accept_adjustment"]',
     action: 'click',
-    wait: 'awaiting_checker',
+    signal: 'awaitingChecker',
   },
   {
     id: 'checker-role',
@@ -79,7 +95,7 @@ const STEPS: TourStep[] = [
     body: 'High-delta writes need a second human. Switch to checker.',
     target: '[data-testid="role-checker"]',
     action: 'click',
-    wait: 'checker-role',
+    signal: 'checkerRole',
   },
   {
     id: 'checker-approve',
@@ -87,28 +103,33 @@ const STEPS: TourStep[] = [
     body: 'Second accept. The tool gateway writes with an audit row.',
     target: '[data-testid="action-accept_adjustment"]',
     action: 'click',
-    wait: 'terminal',
+    signal: 'terminal',
   },
   {
     id: 'audit',
     title: 'Audit',
     body: 'Two humans plus remediation.written for this session.',
     target: '[data-testid="audit-search"]',
+    signal: 'auditWritten',
   },
   {
     id: 'replay',
     title: 'Replay',
     body: 'Immutable workflow version. The card that was shown.',
     target: '[data-testid="replay-stripped"]',
+    signal: 'replayStripped',
   },
   {
     id: 'agent',
-    title: 'Agent console',
-    body: 'Propose a write. Policy opens a session or denies. No silent write.',
-    target: '[data-testid="agent-prompt"]',
+    title: 'Propose write',
+    body: 'Canned resolve_break on A-214. Policy must return requires_human — no silent write.',
+    target: '[data-testid="agent-chip-write"]',
+    action: 'click',
+    signal: 'requiresHuman',
   },
 ];
 
+const MISSING_MS = 20_000;
 const TourContext = createContext<TourContextValue | null>(null);
 
 function prefersReducedMotion(): boolean {
@@ -117,7 +138,7 @@ function prefersReducedMotion(): boolean {
 
 function readStore(): StoredTour | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(TOUR_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredTour>;
     if (!parsed || typeof parsed !== 'object') return null;
@@ -134,7 +155,7 @@ function readStore(): StoredTour | null {
 
 function writeStore(next: StoredTour): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(TOUR_STORAGE_KEY, JSON.stringify(next));
   } catch {
     /* private mode */
   }
@@ -195,9 +216,66 @@ function dropTourParam(pathname: string, search: string): string {
   return q ? `${pathname}?${q}` : pathname;
 }
 
+function queryTarget(selector: string | null): HTMLElement | null {
+  if (!selector) return null;
+  const el = document.querySelector(selector);
+  return el instanceof HTMLElement ? el : null;
+}
+
+function signalMet(step: TourStep, pathname: string, last: SignetSessionTourDetail | null): boolean {
+  switch (step.signal) {
+    case 'row-open':
+      return Boolean(sessionFromPath(pathname));
+    case 'awaitingChecker':
+      return Boolean(last?.awaitingChecker);
+    case 'checkerRole':
+      return getDemoRuntime().role === 'checker';
+    case 'terminal':
+      return Boolean(last?.terminal);
+    case 'auditWritten':
+      return Boolean(document.querySelector('[data-event-type="remediation.written"]'));
+    case 'replayStripped': {
+      const el = document.querySelector('[data-testid="replay-stripped"]');
+      if (!(el instanceof HTMLElement)) return false;
+      const text = el.textContent ?? '';
+      return text.trim().length > 2 && !text.includes('"binding"');
+    }
+    case 'requiresHuman': {
+      const el = document.querySelector('[data-testid="agent-verdict"]');
+      return el instanceof HTMLElement && el.getAttribute('data-decision') === 'requires_human';
+    }
+    default:
+      return false;
+  }
+}
+
+function waitingCopy(step: TourStep, runtimeStatus: string): string {
+  if (runtimeStatus === 'pending' || runtimeStatus === 'warming') return 'Kernel warming…';
+  switch (step.id) {
+    case 'inbox':
+    case 'high-delta':
+      return 'Waiting for an open high-delta exception-review row…';
+    case 'maker':
+      return 'Waiting for the maker accept control…';
+    case 'checker-role':
+      return 'Waiting for the checker role control…';
+    case 'checker-approve':
+      return 'Waiting for the checker accept control…';
+    case 'audit':
+      return 'Waiting for remediation.written on this session…';
+    case 'replay':
+      return 'Waiting for the stripped replay contract…';
+    case 'agent':
+      return 'Waiting for Propose write…';
+    default:
+      return 'Waiting for that control…';
+  }
+}
+
 export function TourProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const demo = useDemoSession();
   const urlIndex = parseTourParam(new URLSearchParams(location.search).get('tour'));
   const stored = readStore();
   const [active, setActive] = useState(urlIndex != null);
@@ -205,9 +283,16 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const [sessionId, setSessionId] = useState<string | null>(
     stored?.sessionId ?? sessionFromPath(location.pathname),
   );
+  const [targetPresent, setTargetPresent] = useState(false);
+  const [humanReady, setHumanReady] = useState(false);
+  const [missing, setMissing] = useState(false);
   const actingRef = useRef(false);
+  const advancingRef = useRef(false);
+  const autoRetryRef = useRef(0);
+  const missingSinceRef = useRef<number | null>(null);
   const stepIndexRef = useRef(stepIndex);
   const sessionRef = useRef(sessionId);
+  const lastSessionRef = useRef<SignetSessionTourDetail | null>(null);
   stepIndexRef.current = stepIndex;
   sessionRef.current = sessionId;
 
@@ -225,19 +310,28 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const goToIndex = useCallback(
     (index: number, sid: string | null = sessionRef.current) => {
-      if (index < 0) return;
+      if (index < 0 || advancingRef.current) return;
       if (index >= STEPS.length) {
+        advancingRef.current = true;
         setActive(false);
         persist({ status: 'done', stepId: 'agent', sessionId: sid });
         navigate(dropTourParam(location.pathname, location.search), { replace: true });
         return;
       }
+      advancingRef.current = true;
       const nextStep = STEPS[index];
       persist({ status: 'in_progress', stepId: nextStep.id, sessionId: sid });
       navigate(withTourParam(hrefFor(nextStep, sid), nextStep.id), { replace: true });
     },
     [location.pathname, location.search, navigate, persist],
   );
+
+  useEffect(() => {
+    advancingRef.current = false;
+    missingSinceRef.current = null;
+    setMissing(false);
+    setHumanReady(false);
+  }, [stepIndex]);
 
   useEffect(() => {
     if (urlIndex == null) return;
@@ -255,47 +349,62 @@ export function TourProvider({ children }: { children: ReactNode }) {
   }, [location.pathname, persist]);
 
   useEffect(() => {
-    if (!active) return;
-    if (step.id !== 'high-delta') return;
-    const sid = sessionFromPath(location.pathname);
-    if (!sid) return;
-    goToIndex(stepIndex + 1, sid);
-  }, [active, goToIndex, location.pathname, step.id, stepIndex]);
-
-  useEffect(() => {
-    if (!active) return;
     const onSession = (event: Event) => {
       const detail = (event as CustomEvent<SignetSessionTourDetail>).detail;
+      lastSessionRef.current = detail;
       if (detail.sessionId) {
         setSessionId(detail.sessionId);
         persist({ sessionId: detail.sessionId });
       }
-      const current = STEPS[stepIndexRef.current];
-      const sid = detail.sessionId || sessionRef.current;
-      if (current.id === 'maker' && detail.awaitingChecker) goToIndex(stepIndexRef.current + 1, sid);
-      else if (current.id === 'maker' && detail.terminal) {
-        goToIndex(
-          STEPS.findIndex((item) => item.id === 'audit'),
-          sid,
-        );
-      } else if (current.id === 'checker-approve' && detail.terminal) {
-        goToIndex(stepIndexRef.current + 1, sid);
-      }
     };
-    const onRole = (event: Event) => {
-      const role = (event as CustomEvent<{ role: string }>).detail.role;
-      const current = STEPS[stepIndexRef.current];
-      if (current.id === 'checker-role' && role === 'checker') {
-        goToIndex(stepIndexRef.current + 1, sessionRef.current);
-      }
+    const onReset = (event: Event) => {
+      const source = (event as CustomEvent<{ source?: string }>).detail?.source;
+      if (source === 'tour') return;
+      setActive(false);
+      setSessionId(null);
+      setStepIndex(0);
+      lastSessionRef.current = null;
     };
     window.addEventListener('signet:session', onSession);
-    window.addEventListener('signet:role', onRole);
+    window.addEventListener('signet:demo-reset', onReset);
     return () => {
       window.removeEventListener('signet:session', onSession);
-      window.removeEventListener('signet:role', onRole);
+      window.removeEventListener('signet:demo-reset', onReset);
     };
-  }, [active, goToIndex, persist]);
+  }, [persist]);
+
+  useEffect(() => {
+    if (!active) return;
+    const tick = () => {
+      const current = STEPS[stepIndexRef.current];
+      const present = !current.target || Boolean(queryTarget(current.target));
+      setTargetPresent(present);
+      const kernelReady = getDemoRuntime().status === 'ready';
+      if (!present) {
+        if (!kernelReady || demo.resetBusy) {
+          missingSinceRef.current = null;
+          setMissing(false);
+        } else {
+          if (missingSinceRef.current == null) missingSinceRef.current = Date.now();
+          const waited = Date.now() - missingSinceRef.current;
+          if (waited >= MISSING_MS) setMissing(true);
+        }
+      } else {
+        missingSinceRef.current = null;
+        setMissing(false);
+      }
+      if (!current.signal) return;
+      if (!signalMet(current, window.location.pathname, lastSessionRef.current)) return;
+      if (current.id === 'agent') {
+        setHumanReady(true);
+        return;
+      }
+      goToIndex(stepIndexRef.current + 1, sessionRef.current);
+    };
+    tick();
+    const timer = window.setInterval(tick, 200);
+    return () => window.clearInterval(timer);
+  }, [active, demo.resetBusy, goToIndex, location.pathname, stepIndex]);
 
   const skip = useCallback(() => {
     setActive(false);
@@ -303,16 +412,39 @@ export function TourProvider({ children }: { children: ReactNode }) {
     navigate(dropTourParam(location.pathname, location.search), { replace: true });
   }, [location.pathname, location.search, navigate, persist, step.id]);
 
-  const start = useCallback(() => {
-    const saved = readStore();
-    const resume = saved?.status === 'in_progress' ? STEPS.findIndex((item) => item.id === saved.stepId) : 0;
-    const index = resume >= 0 ? resume : 0;
-    const sid = saved?.sessionId ?? sessionRef.current;
-    if (sid) setSessionId(sid);
+  const runStart = useCallback(async () => {
+    lastSessionRef.current = null;
+    setSessionId(null);
+    setStepIndex(0);
+    setHumanReady(false);
+    setMissing(false);
+    missingSinceRef.current = null;
     setActive(true);
-    persist({ status: 'in_progress', stepId: STEPS[index].id, sessionId: sid });
-    navigate(withTourParam(hrefFor(STEPS[index], sid), STEPS[index].id), { replace: true });
-  }, [navigate, persist]);
+    navigate(withTourParam('/', 'inbox'), { replace: true });
+    try {
+      await demo.resetImmediate();
+      persist({ status: 'in_progress', stepId: 'inbox', sessionId: null });
+    } catch {
+      persist({ status: 'in_progress', stepId: 'inbox', sessionId: null });
+    }
+  }, [demo, navigate, persist]);
+
+  const start = useCallback(() => {
+    autoRetryRef.current = 0;
+    void runStart();
+  }, [runStart]);
+
+  const restart = useCallback(() => {
+    autoRetryRef.current = 0;
+    void runStart();
+  }, [runStart]);
+
+  useEffect(() => {
+    if (!active || !missing) return;
+    if (autoRetryRef.current >= 1) return;
+    autoRetryRef.current = 1;
+    void runStart();
+  }, [active, missing, runStart]);
 
   const back = useCallback(() => {
     goToIndex(Math.max(0, stepIndex - 1));
@@ -321,9 +453,14 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const next = useCallback(() => {
     const current = STEPS[stepIndex];
     let sid = sessionRef.current;
+    if (current.id === 'agent' && humanReady) {
+      goToIndex(STEPS.length, sid);
+      return;
+    }
+    if (!current.target || !queryTarget(current.target)) return;
     if (current.action === 'click' && current.target) {
-      const el = document.querySelector(current.target);
-      if (el instanceof HTMLElement) {
+      const el = queryTarget(current.target);
+      if (el) {
         const fromEl =
           el.getAttribute('data-session-id') ?? el.closest('[data-session-id]')?.getAttribute('data-session-id');
         if (fromEl) {
@@ -335,9 +472,9 @@ export function TourProvider({ children }: { children: ReactNode }) {
         actingRef.current = false;
       }
     }
-    if (current.wait || current.id === 'high-delta') return;
+    if (current.signal) return;
     goToIndex(stepIndex + 1, sid);
-  }, [goToIndex, stepIndex]);
+  }, [goToIndex, humanReady, stepIndex]);
 
   useEffect(() => {
     if (!active) return;
@@ -348,14 +485,24 @@ export function TourProvider({ children }: { children: ReactNode }) {
       if (!(node instanceof Element) || !node.closest(current.target)) return;
       const sid =
         node.closest('[data-session-id]')?.getAttribute('data-session-id') ??
-        document.querySelector(current.target)?.getAttribute('data-session-id');
+        queryTarget(current.target)?.getAttribute('data-session-id');
       if (sid) setSessionId(sid);
-      if (current.wait || current.id === 'high-delta') return;
+      if (current.signal) return;
       goToIndex(stepIndex + 1, sid ?? sessionRef.current);
     };
     document.addEventListener('click', onClick, true);
     return () => document.removeEventListener('click', onClick, true);
   }, [active, goToIndex, stepIndex]);
+
+  const last = stepIndex === STEPS.length - 1;
+  const canNext = Boolean((!step.target || targetPresent) && (step.id !== 'agent' || !humanReady || last));
+  const nextLabel = last ? (humanReady ? 'Done' : 'Propose write') : 'Next';
+  const waitingHint =
+    !targetPresent || (step.signal && step.id !== 'agent' && !signalMet(step, location.pathname, lastSessionRef.current))
+      ? waitingCopy(step, demo.status)
+      : step.id === 'agent' && !humanReady
+        ? 'Click Propose write, then wait for requires_human.'
+        : null;
 
   const value = useMemo<TourContextValue>(
     () => ({
@@ -365,12 +512,33 @@ export function TourProvider({ children }: { children: ReactNode }) {
       stepCount: STEPS.length,
       sessionId,
       resumable,
+      canNext: Boolean(canNext && targetPresent),
+      missing,
+      waitingHint: missing ? null : waitingHint,
+      nextLabel,
       start,
       skip,
       back,
       next,
+      restart,
     }),
-    [active, back, next, resumable, sessionId, skip, start, step, stepIndex],
+    [
+      active,
+      back,
+      canNext,
+      missing,
+      next,
+      nextLabel,
+      restart,
+      resumable,
+      sessionId,
+      skip,
+      start,
+      step,
+      stepIndex,
+      targetPresent,
+      waitingHint,
+    ],
   );
 
   return <TourContext.Provider value={value}>{children}</TourContext.Provider>;
@@ -382,8 +550,11 @@ export function useTour(): TourContextValue {
   return ctx;
 }
 
+export { clearTourStorage } from '@/lib/tourStorage';
+
 export default function Tour() {
-  const { active, step, stepIndex, stepCount, skip, back, next } = useTour();
+  const { active, step, stepIndex, stepCount, skip, back, next, restart, canNext, missing, waitingHint, nextLabel } =
+    useTour();
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const reduced = prefersReducedMotion();
@@ -444,8 +615,6 @@ export default function Tour() {
 
   if (!active) return null;
 
-  const last = stepIndex === stepCount - 1;
-  const missing = Boolean(step.target && !rect);
   const spotStyle = rect
     ? {
         top: Math.max(8, rect.top - 6),
@@ -465,6 +634,7 @@ export default function Tour() {
         aria-labelledby="tour-title"
         aria-describedby="tour-body"
         tabIndex={-1}
+        data-testid="tour-dialog"
         style={cardPlacement(rect)}
       >
         <p className="tour__progress">
@@ -472,17 +642,27 @@ export default function Tour() {
         </p>
         <h2 id="tour-title">{step.title}</h2>
         <p id="tour-body">{step.body}</p>
-        {missing ? <p className="help">Waiting for that control…</p> : null}
+        {missing ? (
+          <p className="help">Target missing. Reset and restart — do not wait on a dead overlay.</p>
+        ) : waitingHint ? (
+          <p className="help">{waitingHint}</p>
+        ) : null}
         <div className="tour__actions">
-          <button className="btn btn--ghost" type="button" onClick={skip}>
+          <button className="btn btn--ghost" type="button" data-testid="tour-skip" onClick={skip}>
             Skip
           </button>
-          <button className="btn" type="button" onClick={back} disabled={stepIndex === 0}>
+          <button className="btn" type="button" data-testid="tour-back" onClick={back} disabled={stepIndex === 0}>
             Back
           </button>
-          <button className="btn btn--gold" type="button" onClick={next}>
-            {last ? 'Done' : 'Next'}
-          </button>
+          {missing ? (
+            <button className="btn btn--gold" type="button" data-testid="tour-reset" onClick={restart}>
+              Reset and restart
+            </button>
+          ) : (
+            <button className="btn btn--gold" type="button" data-testid="tour-next" onClick={next} disabled={!canNext}>
+              {nextLabel}
+            </button>
+          )}
         </div>
       </div>
     </div>

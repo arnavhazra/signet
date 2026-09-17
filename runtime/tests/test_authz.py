@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from app import db as database
+from app.org import DEMO_ORG_ID
+from app.services import demo_tenant
+
 
 async def test_auditor_can_read_not_write(client, api_headers, auditor_headers, fixture_event):
     event = {**fixture_event, "source": "auditor-read"}
@@ -40,6 +44,29 @@ async def test_demo_cookie_auth(demo_client):
     assert checker.json()["role"] == "checker"
     me = await demo_client.get("/v1/auth/me")
     assert me.json()["role"] == "checker"
+
+
+async def test_demo_api_key_does_not_join_shared_org(demo_client, api_headers):
+    leaked = await demo_client.get("/v1/inbox", headers=api_headers)
+    assert leaked.status_code == 401, leaked.text
+    body = leaked.json()
+    assert body["error"] == "UNAUTHORIZED"
+    assert "cookie" in body["message"].lower()
+    assert "shared" in body["message"].lower()
+    async with database.SessionLocal() as db:
+        assert await demo_tenant.org_session_count(db, DEMO_ORG_ID) == 0
+    minted = await demo_client.get("/v1/auth/demo")
+    assert minted.status_code == 200
+    org_id = minted.json()["orgId"]
+    assert org_id.startswith("org_v_")
+    assert org_id != DEMO_ORG_ID
+    inbox = await demo_client.get("/v1/inbox")
+    assert inbox.status_code == 200
+    assert inbox.json()["items"]
+    me = await demo_client.get("/v1/auth/me")
+    assert me.json()["orgId"] == org_id
+    async with database.SessionLocal() as db:
+        assert await demo_tenant.org_session_count(db, DEMO_ORG_ID) == 0
 
 
 async def test_demo_auth_disabled_without_flag(client):

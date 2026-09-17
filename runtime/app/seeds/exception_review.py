@@ -12,6 +12,7 @@ SYNTHETIC_EXCEPTION = {
     "source": "synthetic-fixture",
 }
 
+# Sole A-214 row. Tour + agent sample both target this high-|delta| exception-review.
 HIGH_DELTA_EXCEPTION = {
     "accountId": "A-214",
     "securityId": "US5949181045",
@@ -21,9 +22,11 @@ HIGH_DELTA_EXCEPTION = {
     "source": "synthetic-high-delta",
 }
 
+# Tour row first. Small mixed set so first GET /v1/inbox fits Vercel Hobby 30s
+# (not 11 full DAGs). Every accountId is unique; only one A-214.
 INBOX_SEED = [
-    SYNTHETIC_EXCEPTION,
     HIGH_DELTA_EXCEPTION,
+    SYNTHETIC_EXCEPTION,
     {
         "accountId": "A-331",
         "securityId": "US02079K1079",
@@ -31,62 +34,6 @@ INBOX_SEED = [
         "custodianQty": 95.0,
         "asOf": "2026-09-12",
         "source": "seed-inbox-03",
-    },
-    {
-        "accountId": "A-408",
-        "securityId": "US88160R1014",
-        "bookQty": 12000.0,
-        "custodianQty": 10800.0,
-        "asOf": "2026-09-16",
-        "source": "seed-inbox-04",
-    },
-    {
-        "accountId": "A-512",
-        "securityId": "US0378331005",
-        "bookQty": 240.0,
-        "custodianQty": 210.0,
-        "asOf": "2026-09-10",
-        "source": "seed-inbox-05",
-    },
-    {
-        "accountId": "A-100",
-        "securityId": "US5949181045",
-        "bookQty": 910.0,
-        "custodianQty": 905.0,
-        "asOf": "2026-09-13",
-        "source": "seed-inbox-06",
-    },
-    {
-        "accountId": "A-214",
-        "securityId": "US02079K1079",
-        "bookQty": 1800.0,
-        "custodianQty": 1650.0,
-        "asOf": "2026-09-11",
-        "source": "seed-inbox-07",
-    },
-    {
-        "accountId": "A-331",
-        "securityId": "US88160R1014",
-        "bookQty": 42.0,
-        "custodianQty": 40.0,
-        "asOf": "2026-09-09",
-        "source": "seed-inbox-08",
-    },
-    {
-        "accountId": "A-408",
-        "securityId": "US0378331005",
-        "bookQty": 760.0,
-        "custodianQty": 900.0,
-        "asOf": "2026-09-08",
-        "source": "seed-inbox-09",
-    },
-    {
-        "accountId": "A-512",
-        "securityId": "US5949181045",
-        "bookQty": 3200.0,
-        "custodianQty": 3050.0,
-        "asOf": "2026-09-07",
-        "source": "seed-inbox-10",
     },
 ]
 

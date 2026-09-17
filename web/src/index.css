@@ -1185,6 +1185,63 @@ h3 {
   transition: none;
 }
 
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(8, 9, 10, 0.64);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.confirm-dialog {
+  width: min(420px, 100%);
+  background: var(--bg-elev);
+  border: 1px solid var(--line-strong);
+  padding: 20px 18px 16px;
+}
+
+.confirm-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.confirm-dialog p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chips {
+  gap: 6px;
+}
+
+.audit-list__item {
+  padding-left: 12px;
+  border-left: 2px solid var(--line-strong);
+}
+
+.audit-list__item.is-agent {
+  border-left-color: var(--teal);
+}
+
+.audit-list__item.is-human {
+  border-left-color: var(--gold);
+}
+
+.audit-list__item.is-write {
+  border-left-color: var(--ok);
+}
+
+.audit-list__item.is-other {
+  border-left-color: var(--line-strong);
+}
+
+.banner .btn {
+  vertical-align: middle;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .spin,
   .toggle::after,
