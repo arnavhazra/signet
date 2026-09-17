@@ -5,11 +5,11 @@ test.describe('Admin', () => {
     await readyConsole(page);
     await switchRole(page, 'admin');
     await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Admin' }).click();
-    await expect(page.getByTestId('workflow-exception-review')).toBeVisible({ timeout: kernelTimeout() });
+    await expect(page.getByTestId('workflow-exception-review').first()).toBeVisible({ timeout: kernelTimeout() });
     const html = await page.request.get('/admin');
     expect(html.ok()).toBeTruthy();
     expect(await html.text()).toMatch(/<!DOCTYPE html>|id="root"/i);
-    await page.getByTestId('workflow-exception-review').click();
+    await page.getByTestId('workflow-exception-review').first().click();
     await page.getByTestId('fetch-stripped').click();
     const contract = page.getByTestId('stripped-contract');
     await expect(contract).toBeVisible({ timeout: kernelTimeout() });

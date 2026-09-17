@@ -143,17 +143,26 @@ export async function clickTourNext(page: Page): Promise<void> {
   await next.click();
 }
 
-/** Click Next; if the title does not advance, click once more (remounted target no-op). */
-export async function clickTourNextUntil(page: Page, title: string): Promise<void> {
+/** Click Next; if the title does not advance, click the highlighted control directly. */
+export async function clickTourNextUntil(
+  page: Page,
+  title: string,
+  fallbackTestId?: string,
+): Promise<void> {
   const heading = page.getByTestId('tour-dialog').locator('#tour-title');
   await clickTourNext(page);
   const firstWait = REMOTE ? 45_000 : 12_000;
   try {
     await expect(heading).toHaveText(title, { timeout: firstWait });
   } catch {
-    const next = page.getByTestId('tour-next');
-    if (await next.isEnabled()) {
-      await next.click();
+    if (fallbackTestId) {
+      const target = page.getByTestId(fallbackTestId).first();
+      if (await target.count()) {
+        await target.click({ force: true });
+      }
+    } else {
+      const next = page.getByTestId('tour-next');
+      if (await next.isEnabled()) await next.click();
     }
     await expect(heading).toHaveText(title, { timeout: KERNEL_TIMEOUT_MS });
   }

@@ -23,9 +23,9 @@ test.describe('Tour FSM', () => {
     await waitTourTitle(page, 'Inbox');
     await clickTourNextUntil(page, 'High-delta row');
     await clickTourNextUntil(page, 'Maker accept');
-    await clickTourNextUntil(page, 'Switch role');
-    await clickTourNextUntil(page, 'Checker approve');
-    await clickTourNextUntil(page, 'Audit');
+    await clickTourNextUntil(page, 'Switch role', 'action-accept_adjustment');
+    await clickTourNextUntil(page, 'Checker approve', 'role-checker');
+    await clickTourNextUntil(page, 'Audit', 'action-accept_adjustment');
     await waitTourTitle(page, 'Replay');
     await waitTourTitle(page, 'Propose write');
 

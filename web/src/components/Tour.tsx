@@ -222,6 +222,13 @@ function queryTarget(selector: string | null): HTMLElement | null {
   return el instanceof HTMLElement ? el : null;
 }
 
+function targetReady(selector: string | null): boolean {
+  const el = queryTarget(selector);
+  if (!el) return false;
+  if ('disabled' in el && (el as HTMLButtonElement).disabled) return false;
+  return true;
+}
+
 function signalMet(step: TourStep, pathname: string, last: SignetSessionTourDetail | null): boolean {
   switch (step.signal) {
     case 'row-open':
@@ -377,7 +384,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
     if (!active) return;
     const tick = () => {
       const current = STEPS[stepIndexRef.current];
-      const present = !current.target || Boolean(queryTarget(current.target));
+      const present = !current.target || targetReady(current.target);
       setTargetPresent(present);
       const kernelReady = getDemoRuntime().status === 'ready';
       if (!present) {
@@ -457,7 +464,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       goToIndex(STEPS.length, sid);
       return;
     }
-    if (!current.target || !queryTarget(current.target)) return;
+    if (!current.target || !targetReady(current.target)) return;
     if (current.action === 'click' && current.target) {
       const el = queryTarget(current.target);
       if (el) {
