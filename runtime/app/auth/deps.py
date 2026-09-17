@@ -103,12 +103,13 @@ def _org_from_payload(payload: dict) -> str:
 
 def _principal_from_payload(payload: dict, via: str) -> Principal:
     sub = str(payload.get("sub") or "unknown")
+    org_id = _org_from_payload(payload)
     return Principal(
         sub=sub,
         role=str(payload.get("role")),
         via=via,
-        identity=f"{via}:{sub}",
-        org_id=_org_from_payload(payload),
+        identity=f"{via}:{sub}:{org_id}",
+        org_id=org_id,
     )
 
 

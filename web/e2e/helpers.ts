@@ -155,6 +155,10 @@ export async function clickTourNextUntil(
   try {
     await expect(heading).toHaveText(title, { timeout: firstWait });
   } catch {
+    const limited = page.getByRole('alert').filter({ hasText: /Rate limited/ });
+    if (await limited.isVisible().catch(() => false)) {
+      await expect(limited).toHaveCount(0, { timeout: 20_000 }).catch(() => undefined);
+    }
     if (fallbackTestId) {
       const target = page.getByTestId(fallbackTestId).first();
       if (await target.count()) {
