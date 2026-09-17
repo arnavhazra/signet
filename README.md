@@ -190,7 +190,7 @@ Playwright covers the interview path: tour FSM, inbox (unique A-214), maker-chec
 
 ## Deploy
 
-1. Vercel Hobby project, production from `main`. SPA build from `web/`; Python function from `api/index.py`. `vercel.json` rewrites `/v1/*`, `/health`, `/ready`, `/admin/*`, `/openapi.json`, `/docs`, `/mcp` to the function; `/agent` and other console routes are the Vite build.
+1. Vercel Hobby project, production from `main`. SPA build from `web/`; Python function from `api/index.py`. `vercel.json` rewrites `/v1/*`, `/health`, `/ready`, `/admin/workflows*`, `/openapi.json`, `/docs`, `/mcp` to the function; `/admin`, `/agent`, and other console routes are the Vite build.
 2. Env (never in git): `DATABASE_URL` (Supabase **session** pooler, `postgresql+asyncpg://…:5432/postgres`), `JWT_SECRET`, `API_KEYS`, `DEMO_MODE=1`, `CORS_ORIGINS` = the Vercel origin. Optional `LLM_API_KEY` for natural-language proposals (deterministic parser if unset). Leave Deployment Protection off for the public demo.
 3. `alembic upgrade head` against that database from `runtime/`.
 4. One-shot seed from your machine (`python -m app.seed` or a private admin seed route). Visitors reseed their own org with `POST /v1/demo/reset`, not a global thousands-of-rows button.

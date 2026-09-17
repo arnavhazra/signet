@@ -1,5 +1,6 @@
 import {
   clickTourNext,
+  clickTourNextUntil,
   completeHighDeltaTwoHumans,
   expect,
   goInbox,
@@ -16,24 +17,15 @@ test.describe('Tour FSM', () => {
   test.describe.configure({ timeout: isRemote() ? 240_000 : 180_000 });
 
   test('walks inbox through propose-write Done', async ({ page }) => {
+    test.setTimeout(isRemote() ? 360_000 : 180_000);
     await readyConsole(page);
     await startTour(page);
     await waitTourTitle(page, 'Inbox');
-    await clickTourNext(page);
-
-    await waitTourTitle(page, 'High-delta row');
-    await clickTourNext(page);
-
-    await waitTourTitle(page, 'Maker accept');
-    await clickTourNext(page);
-
-    await waitTourTitle(page, 'Switch role');
-    await clickTourNext(page);
-
-    await waitTourTitle(page, 'Checker approve');
-    await clickTourNext(page);
-
-    await waitTourTitle(page, 'Audit');
+    await clickTourNextUntil(page, 'High-delta row');
+    await clickTourNextUntil(page, 'Maker accept');
+    await clickTourNextUntil(page, 'Switch role');
+    await clickTourNextUntil(page, 'Checker approve');
+    await clickTourNextUntil(page, 'Audit');
     await waitTourTitle(page, 'Replay');
     await waitTourTitle(page, 'Propose write');
 

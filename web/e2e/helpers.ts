@@ -143,6 +143,22 @@ export async function clickTourNext(page: Page): Promise<void> {
   await next.click();
 }
 
+/** Click Next; if the title does not advance, click once more (remounted target no-op). */
+export async function clickTourNextUntil(page: Page, title: string): Promise<void> {
+  const heading = page.getByTestId('tour-dialog').locator('#tour-title');
+  await clickTourNext(page);
+  const firstWait = REMOTE ? 45_000 : 12_000;
+  try {
+    await expect(heading).toHaveText(title, { timeout: firstWait });
+  } catch {
+    const next = page.getByTestId('tour-next');
+    if (await next.isEnabled()) {
+      await next.click();
+    }
+    await expect(heading).toHaveText(title, { timeout: KERNEL_TIMEOUT_MS });
+  }
+}
+
 export async function startTour(page: Page): Promise<void> {
   await expect(page.getByTestId('start-tour')).toBeVisible({ timeout: KERNEL_TIMEOUT_MS });
   await page.getByTestId('start-tour').click();

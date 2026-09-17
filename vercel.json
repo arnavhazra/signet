@@ -16,7 +16,10 @@
     { "source": "/mcp/:path*", "destination": "/api/index" },
     { "source": "/health", "destination": "/api/index" },
     { "source": "/ready", "destination": "/api/index" },
-    { "source": "/admin/:path*", "destination": "/api/index" },
+    { "source": "/admin", "destination": "/index.html" },
+    { "source": "/admin/workflows", "destination": "/api/index" },
+    { "source": "/admin/workflows/:path*", "destination": "/api/index" },
+    { "source": "/admin/seed", "destination": "/api/index" },
     { "source": "/openapi.json", "destination": "/api/index" },
     { "source": "/docs", "destination": "/api/index" },
     { "source": "/docs/:path*", "destination": "/api/index" },
@@ -24,7 +27,6 @@
     { "source": "/sessions/:path*", "destination": "/index.html" },
     { "source": "/agent", "destination": "/index.html" },
     { "source": "/audit", "destination": "/index.html" },
-    { "source": "/admin", "destination": "/index.html" },
     { "source": "/:path*", "destination": "/index.html" }
   ]
 }

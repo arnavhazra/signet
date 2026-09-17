@@ -3,8 +3,12 @@ import { expect, kernelTimeout, readyConsole, switchRole, test } from './helpers
 test.describe('Admin', () => {
   test('stripped runtime contract has no binding keys', async ({ page }) => {
     await readyConsole(page);
-    await page.goto('/admin');
     await switchRole(page, 'admin');
+    await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Admin' }).click();
+    await expect(page.getByTestId('workflow-exception-review')).toBeVisible({ timeout: kernelTimeout() });
+    const html = await page.request.get('/admin');
+    expect(html.ok()).toBeTruthy();
+    expect(await html.text()).toMatch(/<!DOCTYPE html>|id="root"/i);
     await page.getByTestId('workflow-exception-review').click();
     await page.getByTestId('fetch-stripped').click();
     const contract = page.getByTestId('stripped-contract');
