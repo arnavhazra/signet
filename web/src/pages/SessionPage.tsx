@@ -109,6 +109,20 @@ export default function SessionPage() {
 
   const derivedFacts = useMemo(() => primitiveFacts(snapshot?.derived), [snapshot?.derived]);
 
+  useEffect(() => {
+    if (!snapshot) return;
+    window.dispatchEvent(
+      new CustomEvent('signet:session', {
+        detail: {
+          sessionId: snapshot.sessionId,
+          status: snapshot.status,
+          awaitingChecker: Boolean(snapshot.awaitingChecker) || snapshot.status === 'awaiting_checker',
+          terminal: isTerminalStatus(snapshot.status),
+        },
+      }),
+    );
+  }, [snapshot]);
+
   return (
     <>
       <header className="stage__head">
@@ -124,7 +138,7 @@ export default function SessionPage() {
         <div className="row">
           <StatusPill status={snapshot?.status ?? 'idle'} />
           {id ? (
-            <Link className="btn" to={`/sessions/${encodeURIComponent(id)}/replay`}>
+            <Link className="btn" to={`/sessions/${encodeURIComponent(id)}/replay`} data-testid="replay-link">
               Replay
             </Link>
           ) : null}

@@ -2,7 +2,7 @@
 
 Signet is a **human-in-the-loop (HITL) workflow kernel**: versioned DAGs, server-driven UI (SDUI), and audit-first tools. An exception event starts a durable session; logic nodes run on the server; UI nodes halt for a human; the only writes go through an allowlisted tool gateway that inserts an audit row before any remediation. It is not a chatbot.
 
-Live console: inbox, maker-checker decision, replay, auditor, admin. Synthetic book-vs-custodian data only.
+Live: [signet-pearl-iota.vercel.app](https://signet-pearl-iota.vercel.app) — inbox, maker-checker, replay, auditor, admin, agent. Synthetic book-vs-custodian data only.
 
 Repo: [github.com/arnavhazra/signet](https://github.com/arnavhazra/signet)
 
@@ -14,9 +14,10 @@ Hobby deploy is **same origin**: Vite SPA + FastAPI on Vercel. Postgres is hoste
 Browser
   └─ Vercel Hobby (same origin)
         ├─ static SPA (web/)
-        └─ rewrite /v1 /health /ready /admin /openapi.json → FastAPI (api/index.py → runtime/)
+        └─ rewrite /v1 /health /ready /admin /openapi.json /docs /mcp → FastAPI (api/index.py → runtime/)
               ├─ DagEngine (stateless; sessions in Postgres)
               ├─ ToolGateway (allowlist; audit row before side effect)
+              ├─ Agent gateway (propose; server-side policy; MCP at /mcp)
               ├─ exception_events outbox
               └─ Supabase Postgres (workflows, sessions, audit_events, remediations)
 ```
@@ -24,7 +25,7 @@ Browser
 | Layer | Role |
 | --- | --- |
 | `web/` | SDUI renderer. Paints artifact payloads and posts answers. Does not compute deltas or evaluate bindings. |
-| `runtime/` | FastAPI kernel: DAG, wizard contract, tools, auth, audit. |
+| `runtime/` | FastAPI kernel: DAG, wizard contract, tools, auth, audit, agent policy. |
 | `api/index.py` | Vercel Python entry that imports the FastAPI app. |
 | `infra/` | Optional Kubernetes / Terraform envelope. Not the live path. |
 
@@ -32,9 +33,10 @@ Browser
 
 - **Stripped bindings.** Admin definitions may contain `binding` (`filter_value`, `filter_bracket`, `query_token`). `GET /v1/workflows/{slug}/active`, session snapshots, and replay payloads run through `strip_bindings`. The browser is a renderer; rules stay on the server.
 - **Audit-first tools.** Clients cannot name tools. The DAG names an allowlisted `toolName`. Unknown tools are denied, audited, and produce no side effect. `remediations.audit_event_id` is a required FK.
-- **Roles.** `operator`, `checker`, `admin`, `auditor`. Auditor is GET-only (inbox, session, audit, replay). Operator/checker may ingest and advance. Admin owns catalog, preview, publish. Runtime API keys cannot publish.
-- **Auth.** `X-API-Key` on `/v1/*` for tests and local clients. Demo mode (`DEMO_MODE=1`) issues an HttpOnly `signet_demo` cookie via `GET /v1/auth/demo`. Subsequent `/v1` and `/admin` accept cookie, Bearer JWT, or API key. Rate-limit ingest and advance by IP (and by key when present).
-- **RLS and tenancy.** Rows carry `org_id` (demo org constant). Postgres RLS scopes sessions, audit, remediations, and events to the caller’s org. Demo data is a single org.
+- **Agent policy.** `POST /v1/agent/propose` and MCP tools classify intents on the server. Write-class proposals open a HITL session; reads are served and audited; unknown intents are denied with no side effect. Agents cannot name tools or skip dual control.
+- **Roles.** `operator`, `checker`, `admin`, `auditor`. Auditor is GET-only (inbox, session, audit, replay). Operator/checker may ingest, advance, and propose. Admin owns catalog, preview, publish. Runtime API keys cannot publish.
+- **Auth.** `X-API-Key` on `/v1/*` and `/mcp` for tests and local clients. Demo mode (`DEMO_MODE=1`) issues an HttpOnly `signet_demo` cookie via `GET /v1/auth/demo`. Subsequent `/v1`, `/mcp`, and `/admin` accept cookie, Bearer JWT, or API key. Rate-limit ingest, advance, and propose by IP (and by key when present). `POST /v1/demo/reset` is rate-limited.
+- **RLS and tenancy.** Rows carry `org_id`. Postgres RLS scopes sessions, audit, remediations, and events to the caller’s org. Demo mode mints a per-visitor `org_id` into the `signet_demo` cookie so each visitor gets an isolated inbox.
 
 Every response includes `X-Request-Id` (echo incoming or generate).
 
@@ -47,8 +49,72 @@ Every response includes `X-Request-Id` (echo incoming or generate).
 | `/sessions/:id/replay` | Immutable `workflowId` + `version`, stripped contract vs stored citations |
 | `/audit` | Read-only search by account / session / event type |
 | `/admin` | Catalog, lint on preview/publish, stripped contract fetch |
+| `/agent` | Agent console — prompt, typed proposal, policy verdict, audit row, curl / MCP |
 
 Seeded workflows: `exception-review` (maker-checker on large deltas) and `nav-signoff` (numeric override then approval). Same kernel, different definition JSON.
+
+## Agent integration
+
+Agents propose. They never execute a write. Policy on the server decides whether Signet can answer, must open a human session, or must deny. Console: `/agent`. Engineer notes: [`docs/integration.md`](docs/integration.md).
+
+### Propose
+
+```
+POST /v1/agent/propose
+{
+  "intent": "resolve_break",
+  "accountId": "A-214",
+  "params": {},
+  "rationale": "Book vs custodian delta exceeds threshold"
+}
+
+→ {
+  "decision": "requires_human" | "auto_executed" | "denied",
+  "policy": { "rule": "write_class_requires_human", "threshold": 100, "delta": 120 },
+  "sessionId": "...",
+  "approvalUrl": "/sessions/...",
+  "auditEventId": "...",
+  "proposal": { "intent": "resolve_break", "accountId": "A-214" }
+}
+```
+
+Optional fields on the request: `text`, `intent`, `accountId`, `params`, `rationale`. `text` is free language; `intent` is already typed. Same response either way.
+
+### Policy
+
+| Class | Intents | Decision | What happens |
+| --- | --- | --- | --- |
+| Write | `resolve_break`, `adjust_position` | `requires_human` | Opens a HITL session on the existing DAG. The agent gets an approval URL, not a completed write. Audit: `agent.proposed`. |
+| Read | `list_exceptions`, `explain_break` | `auto_executed` | Served directly. Still audited (`agent.proposed`). |
+| Unknown | anything else | `denied` | `agent.denied` audit row. No session, no remediation. |
+
+### MCP
+
+Streamable HTTP at `/mcp`. Auth is the same as `/v1` (`X-API-Key`, Bearer JWT, or demo cookie).
+
+| Tool | Role |
+| --- | --- |
+| `list_exceptions` | Read the open exception inbox |
+| `propose_remediation` | Submit a write-class proposal. Policy still requires a human. |
+| `get_session` | Session snapshot; bindings stripped |
+| `get_audit` | Audit events |
+
+```json
+{
+  "mcpServers": {
+    "signet": {
+      "url": "https://signet-pearl-iota.vercel.app/mcp",
+      "headers": {
+        "X-API-Key": "demo-runtime-key"
+      }
+    }
+  }
+}
+```
+
+### Hybrid parser
+
+If `LLM_API_KEY` is set, free text is parsed into a typed proposal (Vercel AI Gateway or an OpenAI-compatible endpoint). If it is not set, a deterministic parser produces the same shape. Policy always runs on the typed intent, never on the prose. The live demo does not require a model.
 
 ## HTTP API
 
@@ -58,15 +124,18 @@ Interactive spec: `/openapi.json` (FastAPI `/docs` when served).
 | --- | --- | --- | --- |
 | `GET` | `/health` | none | `{status: ok}` |
 | `GET` | `/ready` | none | 200 when Postgres is reachable |
-| `GET` | `/v1/auth/demo` | none (`DEMO_MODE=1`) | Sets HttpOnly `signet_demo` operator cookie |
+| `GET` | `/v1/auth/demo` | none (`DEMO_MODE=1`) | Sets HttpOnly `signet_demo` cookie; per-visitor `org_id` |
+| `POST` | `/v1/demo/reset` | demo mode | Reseed this visitor’s inbox. Rate-limited. |
 | `GET` | `/v1/inbox` | operator / checker / auditor / API key | `{ items: [{ sessionId, accountId, securityId, bookQty, custodianQty, delta, asOf, status, awaitingChecker, createdAt, workflowSlug }] }` — open and `awaiting_checker` first |
 | `POST` | `/v1/events/exceptions` | operator / checker / API key | Ingest. Optional `Idempotency-Key`. Unique `(org_id, source)`. Replay of the same event returns the existing session `200`. Auditor `403`. |
+| `POST` | `/v1/agent/propose` | operator / checker / API key | Body `{ text?, intent?, accountId?, params?, rationale? }`. Policy: write → human, read → served, unknown → denied. See Agent integration. |
 | `GET` | `/v1/sessions/{id}` | operator / checker / auditor / API key | Session snapshot; bindings stripped |
 | `POST` | `/v1/sessions/{id}/advance` | operator / checker / API key | Body `{ inputs, expectedUpdatedAt? }`. Stale version → `409 { error: CONFLICT }`. Auditor `403`. |
 | `GET` | `/v1/sessions/{id}/audit` | operator / checker / auditor / API key | `{ events }` |
 | `GET` | `/v1/sessions/{id}/replay` | operator / checker / auditor / API key | `{ workflowId, version, slug, stripped, citations, accumulatedAnswers, derived, createdAt }` |
 | `GET` | `/v1/audit` | operator / checker / auditor / API key | Query `accountId`, `eventType`, `sessionId` → `{ events }` |
 | `GET` | `/v1/workflows/{slug}/active` | API key / cookie / JWT | Public wizard contract; no `binding` keys |
+| `GET` `POST` | `/mcp` | cookie / JWT / API key | MCP Streamable HTTP. Tools: `list_exceptions`, `propose_remediation`, `get_session`, `get_audit`. |
 | `GET` `POST` | `/admin/workflows` | admin | List / create |
 | `GET` | `/admin/workflows/{id}` | admin | Full definition (bindings may be present) |
 | `POST` | `/admin/workflows/{id}/preview` | admin | Dry-run `{filters, derived}` plus linter issues |
@@ -80,20 +149,20 @@ Lint rejects cycles and tool nodes missing `toolName` before publish.
 cd runtime && pytest -q          # SQLite in-memory; no network
 ```
 
-Kernel coverage: halt/resume, reject, more-data, maker-checker, second workflow, bindings stripped on active + snapshots, idempotent ingest, concurrent advance `409`, tool deny `403`, lint (cycles, missing `toolName`), auditor cannot POST ingest/advance, auth and rate limit.
+Kernel coverage: halt/resume, reject, more-data, maker-checker, second workflow, bindings stripped on active + snapshots, idempotent ingest, concurrent advance `409`, tool deny `403`, lint (cycles, missing `toolName`), auditor cannot POST ingest/advance, auth and rate limit, agent policy (write blocked, read served, unknown denied), MCP list/call, per-visitor org isolation.
 
 ```bash
-cd web && npx playwright test    # inbox → maker-checker → audit → replay
+cd web && npx playwright test    # inbox → maker-checker → audit → replay → agent
 ```
 
 Playwright hits a preview or production URL (or local same-origin). `TESTING=1` is for unit tests only; do not set it against Supabase.
 
 ## Deploy
 
-1. Vercel Hobby project, production from `main`. SPA build from `web/`; Python function from `api/index.py`. `vercel.json` rewrites `/v1/*`, `/health`, `/ready`, `/admin/*`, `/openapi.json` to the function; everything else is the Vite build.
-2. Env (never in git): `DATABASE_URL` (Supabase **session** pooler, `postgresql+asyncpg://…:5432/postgres`), `JWT_SECRET`, `API_KEYS`, `DEMO_MODE=1`, `CORS_ORIGINS` = the Vercel origin. Leave Deployment Protection off for the public demo.
+1. Vercel Hobby project, production from `main`. SPA build from `web/`; Python function from `api/index.py`. `vercel.json` rewrites `/v1/*`, `/health`, `/ready`, `/admin/*`, `/openapi.json`, `/docs`, `/mcp` to the function; `/agent` and other console routes are the Vite build.
+2. Env (never in git): `DATABASE_URL` (Supabase **session** pooler, `postgresql+asyncpg://…:5432/postgres`), `JWT_SECRET`, `API_KEYS`, `DEMO_MODE=1`, `CORS_ORIGINS` = the Vercel origin. Optional `LLM_API_KEY` for natural-language proposals (deterministic parser if unset). Leave Deployment Protection off for the public demo.
 3. `alembic upgrade head` against that database from `runtime/`.
-4. One-shot seed from your machine (`python -m app.seed` or a private admin seed route). Do not expose a public button that re-seeds thousands of rows.
+4. One-shot seed from your machine (`python -m app.seed` or a private admin seed route). Visitors reseed their own org with `POST /v1/demo/reset`, not a global thousands-of-rows button.
 
 Local same-origin substitute:
 
@@ -108,4 +177,4 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 cd web && npm install && npm run dev   # http://127.0.0.1:5173, proxies /v1 and /admin
 ```
 
-Kernel notes: [`runtime/README.md`](runtime/README.md). Client notes: [`web/README.md`](web/README.md). Optional k8s/Terraform: [`infra/README.md`](infra/README.md).
+Kernel notes: [`runtime/README.md`](runtime/README.md). Client notes: [`web/README.md`](web/README.md). Agent wiring: [`docs/integration.md`](docs/integration.md). Optional k8s/Terraform: [`infra/README.md`](infra/README.md).

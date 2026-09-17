@@ -1,17 +1,47 @@
-import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, unwrapAudit } from '@/api/client';
 import type { AuditEvent } from '@/api/types';
 import AuditLog from '@/components/AuditLog';
 import { toUserMessage } from '@/lib/errors';
 
 export default function AuditPage() {
+  const [params] = useSearchParams();
+  const sessionFromQuery = params.get('session') ?? '';
   const [accountId, setAccountId] = useState('');
   const [eventType, setEventType] = useState('');
-  const [sessionId, setSessionId] = useState('');
+  const [sessionId, setSessionId] = useState(sessionFromQuery);
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (sessionFromQuery) setSessionId(sessionFromQuery);
+  }, [sessionFromQuery]);
+
+  useEffect(() => {
+    if (!sessionFromQuery) return;
+    let cancelled = false;
+    setBusy(true);
+    setError(null);
+    void api
+      .searchAudit({ sessionId: sessionFromQuery })
+      .then((raw) => {
+        if (!cancelled) setEvents(unwrapAudit(raw));
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setEvents(null);
+          setError(toUserMessage(err, 'auditor'));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionFromQuery]);
 
   async function search(event?: FormEvent) {
     event?.preventDefault();
@@ -46,7 +76,7 @@ export default function AuditPage() {
         </p>
       ) : null}
 
-      <form className="panel" onSubmit={(event) => void search(event)}>
+      <form className="panel" data-testid="audit-search" onSubmit={(event) => void search(event)}>
         <p className="panel__stamp">Filters</p>
         <div className="row" style={{ alignItems: 'flex-end' }}>
           <div className="field" style={{ flex: 1, minWidth: 160 }}>

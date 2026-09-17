@@ -9,6 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 os.environ["TESTING"] = "1"
+os.environ["LLM_API_KEY"] = ""
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
 os.environ.setdefault("API_KEYS", "test-runtime-key")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
@@ -45,6 +46,7 @@ def settings() -> Settings:
         RATE_LIMIT_PER_MINUTE=1000,
         REDIS_URL="redis://localhost:6379/0",
         NATS_URL="nats://localhost:4222",
+        LLM_API_KEY="",
     )
 
 
@@ -58,6 +60,7 @@ def demo_settings() -> Settings:
         DEMO_MODE=True,
         OTEL_EXPORTER_OTLP_ENDPOINT="",
         RATE_LIMIT_PER_MINUTE=1000,
+        LLM_API_KEY="",
     )
 
 
@@ -71,6 +74,7 @@ def tight_limit_settings() -> Settings:
         DEMO_MODE=False,
         OTEL_EXPORTER_OTLP_ENDPOINT="",
         RATE_LIMIT_PER_MINUTE=1,
+        LLM_API_KEY="",
     )
 
 

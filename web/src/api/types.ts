@@ -200,3 +200,38 @@ export type LintResult = {
   errors: string[];
   warnings: string[];
 };
+
+export type AgentDecision = 'requires_human' | 'denied' | 'auto_executed' | string;
+
+export type AgentProposeRequest = {
+  text?: string;
+  intent?: string;
+  accountId?: string;
+  params?: JsonObject;
+  rationale?: string;
+};
+
+export type AgentPolicy = {
+  rule?: string;
+  threshold?: number;
+  delta?: number;
+  [key: string]: JsonValue | undefined;
+};
+
+export type AgentProposal = {
+  intent?: string;
+  accountId?: string;
+  params?: JsonObject;
+  rationale?: string;
+  text?: string;
+  [key: string]: JsonValue | undefined;
+};
+
+export type AgentProposeResponse = {
+  decision: AgentDecision;
+  policy: AgentPolicy;
+  sessionId: string | null;
+  approvalUrl: string | null;
+  auditEventId: string | null;
+  proposal: AgentProposal;
+};

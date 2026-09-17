@@ -7,11 +7,11 @@ from app.auth.deps import mint_token
 from app.config import get_settings
 from app import db as database
 from app.logging import configure_logging, get_logger
-from app.schemas.api import ExceptionEvent
-from app.seeds.exception_review import EXCEPTION_REVIEW_DEFINITION, INBOX_SEED
-from app.seeds.nav_signoff import NAV_SIGNOFF_DEFINITION, NAV_SIGNOFF_EVENT
-from app.services import exceptions as exception_service
+from app.org import DEMO_ORG_ID
+from app.seeds.exception_review import EXCEPTION_REVIEW_DEFINITION
+from app.seeds.nav_signoff import NAV_SIGNOFF_DEFINITION
 from app.services.cache import MemoryCache
+from app.services.demo_tenant import seed_inbox_for_org
 from app.services.workflows import create_workflow, get_published, publish_workflow
 
 log = get_logger("seed")
@@ -35,12 +35,7 @@ async def _ensure_published(db, cache, slug: str, name: str, definition: dict[st
 async def bootstrap(db, cache) -> dict[str, Any]:
     review = await _ensure_published(db, cache, "exception-review", "Exception review", EXCEPTION_REVIEW_DEFINITION)
     nav = await _ensure_published(db, cache, "nav-signoff", "NAV sign-off", NAV_SIGNOFF_DEFINITION)
-    session_ids: list[str] = []
-    for raw in INBOX_SEED:
-        snap = await exception_service.process_exception(db, ExceptionEvent.model_validate(raw), bus=None)
-        session_ids.append(snap["sessionId"])
-    nav_snap = await exception_service.process_exception(db, ExceptionEvent.model_validate(NAV_SIGNOFF_EVENT), bus=None)
-    session_ids.append(nav_snap["sessionId"])
+    session_ids = await seed_inbox_for_org(db, DEMO_ORG_ID)
     return {
         "exceptionReview": {"id": str(review.id), "version": review.version},
         "navSignoff": {"id": str(nav.id), "version": nav.version},

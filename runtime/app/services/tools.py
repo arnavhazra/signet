@@ -20,9 +20,10 @@ ALLOWED_TOOLS = frozenset({"attach_citations", "write_remediation", "close_excep
 class ToolGateway:
     """Allowlisted tools only. Every mutating call writes an audit row first."""
 
-    def __init__(self, db: AsyncSession, session_id: UUID):
+    def __init__(self, db: AsyncSession, session_id: UUID, org_id: str = DEMO_ORG_ID):
         self.db = db
         self.session_id = session_id
+        self.org_id = org_id
 
     async def call(self, name: str, accumulated: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
         with tracer.start_as_current_span("tool.call") as span:
@@ -38,7 +39,7 @@ class ToolGateway:
             return result
 
     async def _audit(self, event_type: str, payload: dict[str, Any]) -> AuditEvent:
-        event = AuditEvent(session_id=self.session_id, event_type=event_type, payload=payload, org_id=DEMO_ORG_ID)
+        event = AuditEvent(session_id=self.session_id, event_type=event_type, payload=payload, org_id=self.org_id)
         self.db.add(event)
         await self.db.flush()
         if event.id is None:
@@ -60,7 +61,7 @@ class ToolGateway:
         row = Remediation(
             session_id=self.session_id,
             audit_event_id=audit_id,
-            org_id=DEMO_ORG_ID,
+            org_id=self.org_id,
             account_id=str(accumulated.get("accountId")),
             security_id=str(accumulated.get("securityId")),
             book_qty=float(accumulated.get("bookQty")),

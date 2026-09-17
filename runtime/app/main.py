@@ -11,7 +11,7 @@ from app.config import Settings, get_settings
 from app.db import apply_org_guc, dispose_engine, init_engine
 from app.logging import configure_logging, get_logger
 from app.otel import instrument_app, setup_tracing
-from app.routes import admin, health, runtime
+from app.routes import admin, agent, health, mcp, runtime
 from app.schemas.api import AppError
 from app.services.cache import MemoryCache
 from app.services.nats import MemoryBus
@@ -87,6 +87,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(admin.router)
     app.include_router(runtime.router)
+    app.include_router(agent.router)
+    app.include_router(mcp.router)
     if not settings.TESTING:
         instrument_app(app)
     return app

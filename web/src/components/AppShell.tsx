@@ -1,23 +1,34 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
-import { api, ensureDemoSession } from '@/api/client';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { api, ensureDemoSession, getLastRequestId } from '@/api/client';
 import { toUserMessage } from '@/lib/errors';
+import { signetMeta } from '@/lib/meta';
 
 const DEMO_ROLES = ['operator', 'checker', 'auditor', 'admin'] as const;
 type DemoRole = (typeof DEMO_ROLES)[number];
 
 export default function AppShell() {
+  const navigate = useNavigate();
+  const meta = signetMeta();
   const [health, setHealth] = useState<'unknown' | 'ok' | 'bad'>('unknown');
   const [healthHint, setHealthHint] = useState<string | null>(null);
   const [role, setRole] = useState<DemoRole>('operator');
   const [roleBusy, setRoleBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [requestId, setRequestId] = useState<string | null>(null);
 
   const ping = useCallback(async () => {
+    const started = performance.now();
     try {
       await api.health();
+      setLatencyMs(Math.round(performance.now() - started));
+      setRequestId(getLastRequestId());
       setHealth('ok');
       setHealthHint(null);
     } catch (err) {
+      setLatencyMs(null);
+      setRequestId(getLastRequestId());
       setHealth('bad');
       setHealthHint(toUserMessage(err, 'operator'));
     }
@@ -46,6 +57,10 @@ export default function AppShell() {
     };
   }, [ping]);
 
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('signet:role', { detail: { role } }));
+  }, [role]);
+
   async function switchRole(next: DemoRole) {
     setRoleBusy(true);
     try {
@@ -57,6 +72,23 @@ export default function AppShell() {
       setRoleBusy(false);
     }
   }
+
+  async function resetDemo() {
+    if (!window.confirm('Reset demo data for this visitor?')) return;
+    setResetBusy(true);
+    try {
+      await api.resetDemo();
+      setHealthHint(null);
+      navigate('/');
+      window.dispatchEvent(new Event('signet:demo-reset'));
+    } catch (err) {
+      setHealthHint(toUserMessage(err, 'operator'));
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  const healthLabel = health === 'ok' ? 'Kernel reachable' : health === 'bad' ? 'Kernel is down' : 'Checking kernel';
 
   return (
     <div className="shell">
@@ -78,26 +110,48 @@ export default function AppShell() {
           <NavLink to="/" end className={({ isActive }) => (isActive ? 'nav__link is-active' : 'nav__link')}>
             Inbox
           </NavLink>
+          <NavLink to="/agent" className={({ isActive }) => (isActive ? 'nav__link is-active' : 'nav__link')}>
+            Agent
+          </NavLink>
           <NavLink to="/audit" className={({ isActive }) => (isActive ? 'nav__link is-active' : 'nav__link')}>
             Audit
           </NavLink>
           <NavLink to="/admin" className={({ isActive }) => (isActive ? 'nav__link is-active' : 'nav__link')}>
             Admin
           </NavLink>
+          <div className="nav__label nav__label--next">Reference</div>
+          <a className="nav__link" href="/docs" target="_blank" rel="noreferrer">
+            Docs
+          </a>
         </nav>
         <div className="rail__foot">
-          <div className="health" role="status">
-            <span className={`led ${health === 'ok' ? 'is-ok' : health === 'bad' ? 'is-bad' : ''}`} />
-            {health === 'ok' ? 'Kernel reachable' : health === 'bad' ? 'Kernel is down' : 'Checking kernel'}
+          <div className="syscard" data-testid="system-card">
+            <div className="health" role="status">
+              <span className={`led ${health === 'ok' ? 'is-ok' : health === 'bad' ? 'is-bad' : ''}`} />
+              {healthLabel}
+            </div>
+            {health === 'bad' && healthHint ? <p className="health__hint">{healthHint}</p> : null}
+            <p className="syscard__meta">
+              <span>{latencyMs != null ? `${latencyMs}ms` : '—'}</span>
+              <span className="mono" title={requestId ?? undefined}>
+                {requestId ? requestId.slice(0, 8) : '—'}
+              </span>
+              <span className="mono" title={`v${meta.version}`}>
+                {meta.commit}
+              </span>
+              <span title="pytest count at build">{meta.tests} tests</span>
+            </p>
+            <a className="syscard__link" href="/openapi.json">
+              openapi.json
+            </a>
           </div>
-          {health === 'bad' && healthHint ? <p className="health__hint">{healthHint}</p> : null}
           <p className="health__hint">Role</p>
           <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
             {DEMO_ROLES.map((item) => (
               <button
                 key={item}
                 type="button"
-                className={`btn ${role === item ? 'btn--gold' : ''}`}
+                className={`btn btn--small ${role === item ? 'btn--gold' : ''}`}
                 disabled={roleBusy}
                 data-testid={`role-${item}`}
                 onClick={() => void switchRole(item)}
@@ -106,9 +160,18 @@ export default function AppShell() {
               </button>
             ))}
           </div>
+          <button
+            className="btn btn--wide"
+            type="button"
+            data-testid="reset-demo"
+            disabled={resetBusy}
+            onClick={() => void resetDemo()}
+          >
+            {resetBusy ? 'Resetting…' : 'Reset demo'}
+          </button>
         </div>
       </aside>
-      <div className="stage" id="main">
+      <div className="stage" id="main" tabIndex={-1}>
         {health === 'bad' ? (
           <p className="banner banner--error" role="alert">
             {healthHint}

@@ -102,6 +102,14 @@ class AdvanceBody(BaseModel):
     expectedUpdatedAt: str | None = None
 
 
+class ProposeBody(BaseModel):
+    intent: str | None = None
+    text: str | None = None
+    accountId: str | None = None
+    params: dict[str, Any] | None = None
+    rationale: str | None = None
+
+
 class PublicStep(BaseModel):
     questionId: str
     order: int

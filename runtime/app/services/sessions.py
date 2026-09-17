@@ -59,7 +59,7 @@ def apply_state(row: WorkflowSession, state: SessionState) -> None:
 
 async def write_audit(
     db: AsyncSession,
-    session_id: UUID,
+    session_id: UUID | None,
     event_type: str,
     payload: dict[str, Any],
     *,

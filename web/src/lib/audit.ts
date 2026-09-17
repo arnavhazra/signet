@@ -103,6 +103,19 @@ export function explainAudit(event: AuditEvent, index: number): AuditView {
         ? `Persisted with audit ${String(payload.auditEventId)}.`
         : 'Books-side row persisted.';
       break;
+    case 'agent.proposed':
+      headline = 'Agent proposed';
+      detail = 'Typed proposal recorded. Policy decides; the agent does not write.';
+      break;
+    case 'agent.denied':
+      headline = 'Agent denied';
+      detail = 'Unknown or disallowed intent. No side effect.';
+      break;
+    case 'agent.executed':
+    case 'agent.auto_executed':
+      headline = 'Agent served';
+      detail = 'Read-class intent returned directly and audited.';
+      break;
     default:
       headline = kind.replace(/[._]/g, ' ');
       detail = payload ? formatDisplay(payload) : 'Recorded by the kernel.';

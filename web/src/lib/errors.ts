@@ -28,7 +28,7 @@ export function toUserMessage(
       if (surface === 'admin') {
         return 'Forbidden. Switch role to admin.';
       }
-      return err.message || 'Forbidden.';
+      return firstLine(err.message) || 'Forbidden.';
     }
     if (err.status === 401) {
       if (surface === 'admin') {
@@ -40,7 +40,7 @@ export function toUserMessage(
       if (/session/i.test(err.message)) return 'Session not found.';
       if (/workflow/i.test(err.message)) return 'Workflow not found. Publish a definition first.';
       if (/inbox/i.test(err.message)) return 'Inbox is not available yet.';
-      return err.message;
+      return firstLine(err.message) || 'Not found.';
     }
     if (err.status === 409 || err.code === 'CONFLICT') {
       return 'Conflict. This session changed — reloaded latest state. Retry if needed.';
@@ -49,13 +49,21 @@ export function toUserMessage(
       return 'Rate limited. Wait a few seconds and retry.';
     }
     if (err.status === 503) return 'Kernel not ready.';
-    return err.message;
+    return firstLine(err.message) || 'Request failed.';
   }
   if (err instanceof Error && err.message.trim()) {
     if (/cors|access-control/i.test(err.message)) return 'Kernel unreachable.';
-    return err.message;
+    return firstLine(err.message);
   }
   return 'Request failed.';
+}
+
+function firstLine(message: string): string {
+  const trimmed = message.trim();
+  if (/Traceback \(most recent call last\)/i.test(trimmed) || /File ".*", line \d+/i.test(trimmed)) {
+    return 'Request failed.';
+  }
+  return trimmed.split('\n')[0].slice(0, 400);
 }
 
 export function issuesFromError(err: unknown): string[] {

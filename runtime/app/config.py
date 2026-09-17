@@ -32,6 +32,9 @@ class Settings(BaseSettings):
         "http://localhost:3000,http://127.0.0.1:3000,"
         "http://localhost:4173,http://127.0.0.1:4173"
     )
+    LLM_API_KEY: str = ""
+    LLM_BASE_URL: str = "https://ai-gateway.vercel.sh/v1"
+    LLM_MODEL: str = "openai/gpt-4o-mini"
 
     @field_validator("*", mode="before")
     @classmethod

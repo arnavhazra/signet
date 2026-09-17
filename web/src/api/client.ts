@@ -3,6 +3,10 @@ import type {
   ActiveWorkflow,
   AdminWorkflow,
   AdvanceRequest,
+  AgentPolicy,
+  AgentProposal,
+  AgentProposeRequest,
+  AgentProposeResponse,
   AuditEvent,
   AuditQuery,
   CreateWorkflowRequest,
@@ -149,12 +153,40 @@ function extractErrorCode(data: unknown): string | null {
   return null;
 }
 
+function looksLikeStack(text: string): boolean {
+  return (
+    /Traceback \(most recent call last\)/i.test(text) ||
+    /^\s*at \S+/m.test(text) ||
+    /File ".*", line \d+/i.test(text)
+  );
+}
+
+function sanitizeErrorText(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return 'Request failed.';
+  if (looksLikeStack(trimmed)) {
+    const line = trimmed
+      .split('\n')
+      .map((part) => part.trim())
+      .find(
+        (part) =>
+          part &&
+          !/^traceback/i.test(part) &&
+          !/^file "/i.test(part) &&
+          !/^at /i.test(part) &&
+          !/^\/.*:\d+/i.test(part),
+      );
+    return (line || 'Request failed.').slice(0, 200);
+  }
+  return trimmed.split('\n')[0].slice(0, 400);
+}
+
 function extractErrorMessage(data: unknown): string | null {
-  if (typeof data === 'string' && data.trim()) return data.slice(0, 400);
+  if (typeof data === 'string' && data.trim()) return sanitizeErrorText(data);
   if (!data || typeof data !== 'object') return null;
   const rec = data as Record<string, unknown>;
-  if (typeof rec.message === 'string' && rec.message.trim()) return rec.message;
-  if (typeof rec.detail === 'string' && rec.detail.trim()) return rec.detail;
+  if (typeof rec.message === 'string' && rec.message.trim()) return sanitizeErrorText(rec.message);
+  if (typeof rec.detail === 'string' && rec.detail.trim()) return sanitizeErrorText(rec.detail);
   if (Array.isArray(rec.detail)) {
     const parts = rec.detail
       .map((item) => {
@@ -165,11 +197,11 @@ function extractErrorMessage(data: unknown): string | null {
         return null;
       })
       .filter((part): part is string => Boolean(part));
-    if (parts.length) return parts.join('; ');
+    if (parts.length) return sanitizeErrorText(parts.join('; '));
   }
-  if (typeof rec.title === 'string' && rec.title.trim()) return rec.title;
+  if (typeof rec.title === 'string' && rec.title.trim()) return sanitizeErrorText(rec.title);
   if (typeof rec.error === 'string' && rec.error.trim() && !/^[A-Z0-9_]+$/.test(rec.error)) {
-    return rec.error;
+    return sanitizeErrorText(rec.error);
   }
   return null;
 }
@@ -289,6 +321,13 @@ export const api = {
 
   getAudit: (id: string) =>
     request<unknown>('GET', `/v1/sessions/${encodeURIComponent(id)}/audit`, 'runtime'),
+
+  proposeAgent: async (body: AgentProposeRequest) => {
+    const data = await request<unknown>('POST', '/v1/agent/propose', 'runtime', body);
+    return normalizeAgentPropose(data);
+  },
+
+  resetDemo: () => request<unknown>('POST', '/v1/demo/reset', 'runtime'),
 };
 
 export async function ensureDemoSession(role = 'operator'): Promise<void> {
@@ -325,4 +364,52 @@ export function asJsonObject(value: unknown): JsonObject {
 export function sessionConcurrencyToken(snapshot: SessionSnapshot | null): string | undefined {
   if (!snapshot) return undefined;
   return snapshot.updatedAt || snapshot.expectedUpdatedAt;
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function readString(rec: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = rec[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return null;
+}
+
+export function normalizeAgentPropose(data: unknown): AgentProposeResponse {
+  const rec = readRecord(data);
+  const policyRec = readRecord(rec.policy);
+  const proposalRec = readRecord(rec.proposal);
+  let sessionId = readString(rec, 'sessionId', 'session_id');
+  const approvalUrl = readString(rec, 'approvalUrl', 'approval_url');
+  if (!sessionId && approvalUrl) {
+    const match = approvalUrl.match(/\/sessions\/([^/?#]+)/);
+    if (match) sessionId = decodeURIComponent(match[1]);
+  }
+  return {
+    decision: String(rec.decision ?? ''),
+    policy: policyRec as AgentPolicy,
+    sessionId,
+    approvalUrl,
+    auditEventId: readString(rec, 'auditEventId', 'audit_event_id'),
+    proposal: proposalRec as AgentProposal,
+  };
+}
+
+export function sessionPathFromApproval(sessionId: string | null, approvalUrl: string | null): string | null {
+  if (approvalUrl) {
+    try {
+      const url = new URL(approvalUrl, window.location.origin);
+      return `${url.pathname}${url.search}`;
+    } catch {
+      if (approvalUrl.startsWith('/')) return approvalUrl;
+    }
+  }
+  if (sessionId) return `/sessions/${encodeURIComponent(sessionId)}`;
+  return null;
 }

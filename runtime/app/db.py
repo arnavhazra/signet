@@ -5,6 +5,8 @@ from collections.abc import AsyncIterator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from fastapi import Request
+
 from app.config import Settings
 from app.models.base import Base
 from app.org import DEMO_ORG_ID
@@ -48,11 +50,17 @@ async def apply_org_guc(session: AsyncSession, org_id: str = DEMO_ORG_ID) -> Non
         )
 
 
-async def get_db() -> AsyncIterator[AsyncSession]:
+async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
     assert SessionLocal is not None
+    org_id = getattr(request.state, "org_id", None)
+    if not org_id:
+        from app.auth.deps import peek_org_id
+
+        org_id = peek_org_id(request)
+        request.state.org_id = org_id
     async with SessionLocal() as session:
         try:
-            await apply_org_guc(session)
+            await apply_org_guc(session, org_id)
             yield session
             await session.commit()
         except Exception:

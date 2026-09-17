@@ -71,8 +71,8 @@ class AuditEvent(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     org_id: Mapped[str] = mapped_column(String(64), nullable=False, default=DEMO_ORG_ID, index=True)
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("workflow_sessions.id"), nullable=False, index=True
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("workflow_sessions.id"), nullable=True, index=True
     )
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     actor: Mapped[str | None] = mapped_column(String(64), nullable=True)

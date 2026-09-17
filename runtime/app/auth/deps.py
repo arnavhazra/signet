@@ -7,7 +7,7 @@ import jwt
 from fastapi import Header, Request
 
 from app.config import Settings
-from app.org import DEMO_COOKIE
+from app.org import DEMO_COOKIE, DEMO_ORG_ID
 from app.schemas.api import AppError
 
 ROLES = frozenset({"admin", "operator", "checker", "auditor", "runtime"})
@@ -20,6 +20,7 @@ class Principal:
     role: str
     via: str
     identity: str
+    org_id: str = DEMO_ORG_ID
 
     @property
     def can_mutate(self) -> bool:
@@ -64,12 +65,20 @@ def require_api_key(x_api_key: str | None, settings: Settings) -> str:
     return x_api_key
 
 
-def mint_token(settings: Settings, sub: str, role: str, days: int = 7, hours: int | None = None) -> str:
+def mint_token(
+    settings: Settings,
+    sub: str,
+    role: str,
+    days: int = 7,
+    hours: int | None = None,
+    org_id: str = DEMO_ORG_ID,
+) -> str:
     now = datetime.now(timezone.utc)
     delta = timedelta(hours=hours) if hours is not None else timedelta(days=days)
     payload = {
         "sub": sub,
         "role": role,
+        "org_id": org_id,
         "iat": int(now.timestamp()),
         "exp": int((now + delta).timestamp()),
     }
@@ -85,9 +94,40 @@ def client_ip(request: Request) -> str:
     return "unknown"
 
 
+def _org_from_payload(payload: dict) -> str:
+    org = payload.get("org_id") or payload.get("orgId")
+    if isinstance(org, str) and org.strip():
+        return org.strip()
+    return DEMO_ORG_ID
+
+
 def _principal_from_payload(payload: dict, via: str) -> Principal:
     sub = str(payload.get("sub") or "unknown")
-    return Principal(sub=sub, role=str(payload.get("role")), via=via, identity=f"{via}:{sub}")
+    return Principal(
+        sub=sub,
+        role=str(payload.get("role")),
+        via=via,
+        identity=f"{via}:{sub}",
+        org_id=_org_from_payload(payload),
+    )
+
+
+def peek_org_id(request: Request) -> str:
+    settings: Settings = request.app.state.settings
+    authorization = request.headers.get("authorization")
+    if authorization and authorization.lower().startswith("bearer "):
+        try:
+            payload = decode_token(authorization.split(" ", 1)[1].strip(), settings)
+            return _org_from_payload(payload)
+        except AppError:
+            pass
+    token = request.cookies.get(DEMO_COOKIE)
+    if token:
+        try:
+            return _org_from_payload(decode_token(token, settings))
+        except AppError:
+            pass
+    return DEMO_ORG_ID
 
 
 def _from_cookie(request: Request, settings: Settings) -> Principal | None:
@@ -109,7 +149,13 @@ def resolve_principal(
     if cookie_principal:
         return cookie_principal
     key = require_api_key(x_api_key, settings)
-    return Principal(sub="api-key", role="runtime", via="api_key", identity=f"key:{key}")
+    return Principal(
+        sub="api-key",
+        role="runtime",
+        via="api_key",
+        identity=f"key:{key}",
+        org_id=DEMO_ORG_ID,
+    )
 
 
 async def current_principal(
@@ -117,7 +163,9 @@ async def current_principal(
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> Principal:
-    return resolve_principal(request, authorization, x_api_key)
+    principal = resolve_principal(request, authorization, x_api_key)
+    request.state.org_id = principal.org_id
+    return principal
 
 
 async def mutate_principal(
@@ -126,6 +174,7 @@ async def mutate_principal(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> Principal:
     principal = resolve_principal(request, authorization, x_api_key)
+    request.state.org_id = principal.org_id
     if not principal.can_mutate:
         raise AppError("Auditor role is read-only", status_code=403, error="FORBIDDEN")
     return principal

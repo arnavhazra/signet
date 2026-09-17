@@ -40,8 +40,8 @@ def fingerprint_event(event: dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def _engine_for(db: AsyncSession, session_id: UUID) -> DagEngine:
-    tools = ToolGateway(db, session_id)
+def _engine_for(db: AsyncSession, session_id: UUID, org_id: str) -> DagEngine:
+    tools = ToolGateway(db, session_id, org_id=org_id)
     return DagEngine(NodeRegistry(tools=tools))
 
 
@@ -167,7 +167,7 @@ async def process_exception(
 
     await write_audit(db, row.id, "session.created", payload, actor=actor, org_id=org_id)
 
-    engine = _engine_for(db, row.id)
+    engine = _engine_for(db, row.id, org_id)
     state = orm_to_state(row)
     result = await engine.start(definition, state)
     apply_state(row, result.session)
@@ -257,7 +257,7 @@ async def advance_session(
     except AppError:
         pass
     state.accumulated_answers = merged
-    engine = _engine_for(db, row.id)
+    engine = _engine_for(db, row.id, org_id)
     result = await engine.advance(state, workflow.definition, {})
     apply_state(row, result.session)
     await db.flush()
@@ -295,7 +295,7 @@ async def list_audit(db: AsyncSession, session_id: UUID, org_id: str = DEMO_ORG_
 def _audit_dict(row: AuditEvent) -> dict[str, Any]:
     return {
         "id": str(row.id),
-        "sessionId": str(row.session_id),
+        "sessionId": str(row.session_id) if row.session_id else None,
         "eventType": row.event_type,
         "actor": row.actor,
         "payload": row.payload,
@@ -364,7 +364,7 @@ async def search_audit(
 ) -> list[dict[str, Any]]:
     stmt = (
         select(AuditEvent)
-        .join(WorkflowSession, AuditEvent.session_id == WorkflowSession.id)
+        .outerjoin(WorkflowSession, AuditEvent.session_id == WorkflowSession.id)
         .where(AuditEvent.org_id == org_id)
     )
     if session_id:
