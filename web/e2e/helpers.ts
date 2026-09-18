@@ -176,6 +176,8 @@ export async function startTour(page: Page): Promise<void> {
   await expect(page.getByTestId('start-tour')).toBeVisible({ timeout: KERNEL_TIMEOUT_MS });
   await page.getByTestId('start-tour').click();
   await expect(page.getByTestId('tour-dialog')).toBeVisible({ timeout: KERNEL_TIMEOUT_MS });
+  await expect(page.getByTestId('reset-demo')).toBeEnabled({ timeout: KERNEL_TIMEOUT_MS });
+  await expectHighDeltaOpen(page);
 }
 
 export async function acceptAdjustment(page: Page): Promise<void> {

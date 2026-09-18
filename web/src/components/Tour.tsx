@@ -470,6 +470,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       goToIndex(STEPS.length, sid);
       return;
     }
+    if (demo.resetBusy) return;
     if (!current.target || !targetEnabled(current.target)) return;
     if (current.action === 'click' && current.target) {
       const el = queryTarget(current.target);
@@ -487,7 +488,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
     }
     if (current.signal) return;
     goToIndex(stepIndex + 1, sid);
-  }, [goToIndex, humanReady, stepIndex]);
+  }, [demo.resetBusy, goToIndex, humanReady, stepIndex]);
 
   useEffect(() => {
     if (!active) return;
@@ -508,10 +509,15 @@ export function TourProvider({ children }: { children: ReactNode }) {
   }, [active, goToIndex, stepIndex]);
 
   const last = stepIndex === STEPS.length - 1;
-  const canNext = Boolean((!step.target || targetEnabled(step.target)) && (step.id !== 'agent' || !humanReady || last));
+  const canNext = Boolean(
+    !demo.resetBusy &&
+      (!step.target || targetEnabled(step.target)) &&
+      (step.id !== 'agent' || !humanReady || last),
+  );
   const nextLabel = last ? (humanReady ? 'Done' : 'Propose write') : 'Next';
-  const waitingHint =
-    !targetPresent || (step.signal && step.id !== 'agent' && !signalMet(step, location.pathname, lastSessionRef.current))
+  const waitingHint = demo.resetBusy
+    ? 'Reseeding the queue…'
+    : !targetPresent || (step.signal && step.id !== 'agent' && !signalMet(step, location.pathname, lastSessionRef.current))
       ? waitingCopy(step, demo.status)
       : step.id === 'agent' && !humanReady
         ? 'Click Propose write, then wait for requires_human.'
