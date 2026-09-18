@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine.dag import SessionState
@@ -77,7 +78,10 @@ async def write_audit(
         org_id=org_id,
     )
     db.add(event)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        raise AppError("Session changed", status_code=409, error="CONFLICT") from exc
     return event
 
 

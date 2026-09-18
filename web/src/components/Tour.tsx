@@ -222,7 +222,11 @@ function queryTarget(selector: string | null): HTMLElement | null {
   return el instanceof HTMLElement ? el : null;
 }
 
-function targetReady(selector: string | null): boolean {
+function targetExists(selector: string | null): boolean {
+  return queryTarget(selector) != null;
+}
+
+function targetEnabled(selector: string | null): boolean {
   const el = queryTarget(selector);
   if (!el) return false;
   if ('disabled' in el && (el as HTMLButtonElement).disabled) return false;
@@ -384,7 +388,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
     if (!active) return;
     const tick = () => {
       const current = STEPS[stepIndexRef.current];
-      const present = !current.target || targetReady(current.target);
+      const present = !current.target || targetExists(current.target);
       setTargetPresent(present);
       const kernelReady = getDemoRuntime().status === 'ready';
       if (!present) {
@@ -449,6 +453,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!active || !missing) return;
     if (autoRetryRef.current >= 1) return;
+    const id = STEPS[stepIndexRef.current]?.id;
+    if (sessionRef.current && (id === 'maker' || id === 'checker-role' || id === 'checker-approve')) return;
     autoRetryRef.current = 1;
     void runStart();
   }, [active, missing, runStart]);
@@ -464,7 +470,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       goToIndex(STEPS.length, sid);
       return;
     }
-    if (!current.target || !targetReady(current.target)) return;
+    if (!current.target || !targetEnabled(current.target)) return;
     if (current.action === 'click' && current.target) {
       const el = queryTarget(current.target);
       if (el) {
@@ -502,7 +508,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
   }, [active, goToIndex, stepIndex]);
 
   const last = stepIndex === STEPS.length - 1;
-  const canNext = Boolean((!step.target || targetPresent) && (step.id !== 'agent' || !humanReady || last));
+  const canNext = Boolean((!step.target || targetEnabled(step.target)) && (step.id !== 'agent' || !humanReady || last));
   const nextLabel = last ? (humanReady ? 'Done' : 'Propose write') : 'Next';
   const waitingHint =
     !targetPresent || (step.signal && step.id !== 'agent' && !signalMet(step, location.pathname, lastSessionRef.current))
