@@ -62,14 +62,14 @@ export default function RendererKit() {
         Submissions stay in this panel.
       </p>
       {last ? (
-        <p className="help" style={{ marginTop: 8 }}>
+        <p className="help mt">
           Last local value from <span className="mono">{last.id}</span>:{' '}
           <span className="mono">{JSON.stringify(last.value)}</span>
         </p>
       ) : null}
-      <div className="stack" style={{ marginTop: 16 }}>
+      <div className="stack mt-lg">
         {KIT.map((node) => (
-          <div key={node.id} className="panel" style={{ background: 'var(--bg-inset)' }}>
+          <div key={node.id} className="panel panel--inset">
             <ArtifactRenderer
               node={node}
               onSubmit={(value) => setLast({ id: node.id, value })}

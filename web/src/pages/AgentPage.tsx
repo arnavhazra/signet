@@ -1,9 +1,10 @@
-import { useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { api, getLastRequestId, sessionPathFromApproval } from '@/api/client';
+import { api, getDemoAccessToken, getLastRequestId, sessionPathFromApproval, subscribeDemoRuntime } from '@/api/client';
 import type { AgentProposeRequest, AgentProposeResponse, JsonObject, JsonValue } from '@/api/types';
 import FactTable from '@/components/FactTable';
 import { toUserMessage } from '@/lib/errors';
+import { usePageTitle } from '@/lib/pageTitle';
 import { SIGNET_LIVE_ORIGIN } from '@/lib/site';
 
 type Tab = 'console' | 'contract';
@@ -42,6 +43,10 @@ export default function AgentPage() {
   const [result, setResult] = useState<AgentProposeResponse | null>(null);
   const [lastBody, setLastBody] = useState<AgentProposeRequest>({ text: SAMPLE_TEXT });
   const [requestId, setRequestId] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(() => getDemoAccessToken());
+  usePageTitle('Agent');
+
+  useEffect(() => subscribeDemoRuntime(() => setAccessToken(getDemoAccessToken())), []);
 
   async function propose(body?: AgentProposeRequest) {
     const payload: AgentProposeRequest = body ?? { text: text.trim() || SAMPLE_TEXT };
@@ -77,7 +82,7 @@ export default function AgentPage() {
   const proposalFacts = useMemo(() => proposalRows(result?.proposal), [result]);
   const policyFacts = useMemo(() => policyRows(result?.policy), [result]);
   const curl = buildCurl(lastBody);
-  const mcpConfig = buildMcpConfig();
+  const mcpConfig = buildMcpConfig(accessToken);
 
   return (
     <>
@@ -142,10 +147,10 @@ export default function AgentPage() {
                   </button>
                 ))}
               </div>
-              <p className="help" style={{ marginTop: 8 }}>
+              <p className="help mt">
                 Write = resolve_break A-214 · Read = list_exceptions · Deny = delete_everything
               </p>
-              <div className="field" style={{ marginTop: 12 }}>
+              <div className="field mt">
                 <label htmlFor="agent-prompt">Free text</label>
                 <textarea
                   id="agent-prompt"
@@ -159,7 +164,7 @@ export default function AgentPage() {
                   spellCheck={false}
                 />
               </div>
-              <div className="row" style={{ marginTop: 12 }}>
+              <div className="row mt">
                 <button className="btn btn--gold" type="submit" data-testid="agent-propose" disabled={busy}>
                   {busy ? 'Proposing…' : 'Propose'}
                 </button>
@@ -201,7 +206,7 @@ export default function AgentPage() {
                     ]}
                   />
                   {sessionHref ? (
-                    <p className="help" style={{ marginTop: 12 }}>
+                    <p className="help mt">
                       <Link to={sessionHref}>Open session</Link>
                     </p>
                   ) : null}
@@ -221,7 +226,7 @@ export default function AgentPage() {
           </section>
           <section className="panel">
             <p className="panel__stamp">MCP client</p>
-            <p className="help">Streamable HTTP. Point a client at the live kernel.</p>
+            <p className="help">Visitor JWT from GET /v1/auth/demo as Authorization Bearer. Cookie stays HttpOnly.</p>
             <CopyBlock text={mcpConfig} testId="agent-mcp" />
           </section>
         </div>
@@ -273,13 +278,17 @@ function buildCurl(body: AgentProposeRequest): string {
   ].join('\n');
 }
 
-function buildMcpConfig(): string {
+function buildMcpConfig(accessToken: string | null): string {
+  const token = accessToken?.trim() || '<accessToken from GET /v1/auth/demo>';
   return `${JSON.stringify(
     {
       mcpServers: {
         signet: {
           type: 'http',
           url: `${SIGNET_LIVE_ORIGIN}/mcp`,
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         },
       },
     },

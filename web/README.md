@@ -39,7 +39,8 @@ See `.env.example`.
 ## Frozen API used by this client
 
 - `GET /health`
-- `GET /v1/auth/demo`
+- `GET /ready`
+- `GET /v1/auth/demo` (JSON includes `accessToken` for MCP; cookie stays HttpOnly)
 - `GET /v1/auth/me`
 - `GET /v1/inbox`
 - `POST /v1/events/exceptions`

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import db as database
 from app.db import apply_org_guc
 from app.logging import get_logger
 from app.models.entities import AuditEvent, ExceptionEventRow, Remediation, WorkflowSession
@@ -19,6 +21,18 @@ from app.services.cache import Cache
 log = get_logger("demo_tenant")
 
 _SWEEP_KEY = "demo_org_sweep"
+_ORG_LOCKS: dict[str, asyncio.Lock] = {}
+_LOCKS_GUARD = asyncio.Lock()
+
+
+async def _org_lock(org_id: str) -> asyncio.Lock:
+    async with _LOCKS_GUARD:
+        lock = _ORG_LOCKS.get(org_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _ORG_LOCKS[org_id] = lock
+        return lock
+
 
 # Tour row (INBOX_SEED[0] = A-214) then mixed exception-review rows + one nav-signoff.
 SEED_EVENTS: list[dict[str, Any]] = [*INBOX_SEED, NAV_SIGNOFF_EVENT]
@@ -45,7 +59,13 @@ async def seed_inbox_for_org(db: AsyncSession, org_id: str) -> list[str]:
     for index, raw in enumerate(missing):
         session_ids.append(await _process_seed_event(db, org_id, raw))
         # Persist the tour row before remaining DAGs so a Hobby 504 still leaves A-214.
-        if index == 0:
+        # SQLite StaticPool shares one connection; a mid-seed commit would commit other
+        # requests on that connection. Request-end commit is enough in TESTING.
+        if (
+            index == 0
+            and database.engine is not None
+            and database.engine.dialect.name != "sqlite"
+        ):
             await db.commit()
             await apply_org_guc(db, org_id)
     return session_ids
@@ -57,12 +77,13 @@ async def org_session_count(db: AsyncSession, org_id: str) -> int:
 
 
 async def ensure_inbox(db: AsyncSession, org_id: str) -> list[str]:
-    existing = await _existing_seed_sources(db, org_id)
-    if all(raw["source"] in existing for raw in SEED_EVENTS):
-        return []
-    ids = await seed_inbox_for_org(db, org_id)
-    log.info("demo_inbox_seeded", org_id=org_id, sessions=len(ids), total=FAST_INBOX_SIZE)
-    return ids
+    async with await _org_lock(org_id):
+        existing = await _existing_seed_sources(db, org_id)
+        if all(raw["source"] in existing for raw in SEED_EVENTS):
+            return []
+        ids = await seed_inbox_for_org(db, org_id)
+        log.info("demo_inbox_seeded", org_id=org_id, sessions=len(ids), total=FAST_INBOX_SIZE)
+        return ids
 
 
 async def delete_org_runtime_rows(db: AsyncSession, org_id: str) -> None:
@@ -74,9 +95,10 @@ async def delete_org_runtime_rows(db: AsyncSession, org_id: str) -> None:
 
 
 async def reset_org_inbox(db: AsyncSession, org_id: str) -> dict[str, Any]:
-    await delete_org_runtime_rows(db, org_id)
-    ids = await seed_inbox_for_org(db, org_id)
-    return {"ok": True, "orgId": org_id, "sessions": len(ids)}
+    async with await _org_lock(org_id):
+        await delete_org_runtime_rows(db, org_id)
+        ids = await seed_inbox_for_org(db, org_id)
+        return {"ok": True, "orgId": org_id, "sessions": len(ids)}
 
 
 async def stale_visitor_org_ids(db: AsyncSession, *, ttl_hours: int = DEMO_ORG_TTL_HOURS) -> list[str]:

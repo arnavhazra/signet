@@ -1,8 +1,10 @@
 import { Link, useLocation } from 'react-router-dom';
+import { usePageTitle } from '@/lib/pageTitle';
 
 export default function NotFoundPage() {
   const location = useLocation();
   const path = `${location.pathname}${location.search}`;
+  usePageTitle('Not found');
 
   return (
     <>
@@ -17,10 +19,10 @@ export default function NotFoundPage() {
       <section className="panel" role="status">
         <p className="panel__stamp">Request</p>
         <p className="mono">{path || '/'}</p>
-        <p className="help" style={{ marginTop: 12 }}>
+        <p className="help mt">
           If you expected a session, open the inbox and pick a row.
         </p>
-        <div className="row" style={{ marginTop: 16 }}>
+        <div className="row mt-lg">
           <Link className="btn btn--gold" to="/">
             Inbox
           </Link>

@@ -29,6 +29,39 @@ function toolName(event: AuditEvent): string | null {
 
 export type AuditKindGroup = 'agent' | 'human' | 'write' | 'other';
 
+export type AuditPhaseId = 'ingest' | 'halt' | 'decision' | 'write';
+
+export const AUDIT_PHASES: { id: AuditPhaseId; label: string }[] = [
+  { id: 'ingest', label: 'Ingest' },
+  { id: 'halt', label: 'Halt' },
+  { id: 'decision', label: 'Agent / human' },
+  { id: 'write', label: 'Written' },
+];
+
+export function auditPhaseHit(events: AuditEvent[]): Record<AuditPhaseId, boolean> {
+  const kinds = events.map((event, index) => auditKind(event, index).toLowerCase());
+  return {
+    ingest: kinds.some((kind) => kind === 'session.created' || kind.includes('ingest')),
+    halt: kinds.some((kind) => kind === 'dag.halt'),
+    decision: kinds.some(
+      (kind) => kind.startsWith('agent.') || kind === 'human.decision' || kind === 'input.received',
+    ),
+    write: kinds.some((kind) => kind === 'remediation.written'),
+  };
+}
+
+export function sortAuditChronological(events: AuditEvent[]): AuditEvent[] {
+  return events
+    .map((event, index) => ({ event, index }))
+    .sort((a, b) => {
+      const ta = Date.parse(String(a.event.createdAt ?? a.event.at ?? a.event.timestamp ?? a.event.ts ?? '')) || 0;
+      const tb = Date.parse(String(b.event.createdAt ?? b.event.at ?? b.event.timestamp ?? b.event.ts ?? '')) || 0;
+      if (ta !== tb) return ta - tb;
+      return a.index - b.index;
+    })
+    .map((item) => item.event);
+}
+
 export function auditGroup(kind: string): AuditKindGroup {
   const key = kind.trim().toLowerCase();
   if (key.startsWith('agent.')) return 'agent';

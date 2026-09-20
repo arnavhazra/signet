@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+import asyncio
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -13,6 +14,7 @@ from app.org import DEMO_ORG_ID
 
 engine = None
 SessionLocal: async_sessionmaker[AsyncSession] | None = None
+_SQLITE_LOCK = asyncio.Lock()
 
 
 def init_engine(settings: Settings):
@@ -58,11 +60,18 @@ async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
 
         org_id = peek_org_id(request)
         request.state.org_id = org_id
-    async with SessionLocal() as session:
-        try:
-            await apply_org_guc(session, org_id)
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+    sqlite = engine is not None and engine.dialect.name == "sqlite"
+    if sqlite:
+        await _SQLITE_LOCK.acquire()
+    try:
+        async with SessionLocal() as session:
+            try:
+                await apply_org_guc(session, org_id)
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+    finally:
+        if sqlite:
+            _SQLITE_LOCK.release()

@@ -11,7 +11,7 @@ export default function FactTable({ facts }: Props) {
   return (
     <dl className="facts">
       {facts.map((fact) => (
-        <div key={fact.label} style={{ display: 'contents' }}>
+        <div key={fact.label} className="facts__pair">
           <dt>{humanize(fact.label)}</dt>
           <dd className={isNumericValue(fact.value) ? 'num' : undefined}>
             {formatDisplay(fact.value)}

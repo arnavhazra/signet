@@ -1,22 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
-import { api, getLastRequestId, retryDemoSession } from '@/api/client';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { api, getLastRequestId, pingKernel, retryDemoSession, unwrapInbox } from '@/api/client';
+import type { InboxItem } from '@/api/types';
 import { DEMO_ROLES, useDemoSession } from '@/auth/DemoSession';
+import CommandPalette from '@/components/CommandPalette';
 import { toUserMessage } from '@/lib/errors';
+import { inboxCounts, rememberInbox } from '@/lib/inbox';
 import { signetMeta } from '@/lib/meta';
 
 export default function AppShell() {
   const demo = useDemoSession();
+  const location = useLocation();
   const meta = signetMeta();
   const [health, setHealth] = useState<'unknown' | 'ok' | 'bad'>('unknown');
   const [healthHint, setHealthHint] = useState<string | null>(null);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
+  const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
 
   const ping = useCallback(async () => {
     const started = performance.now();
     try {
-      await api.health();
+      await pingKernel();
       setLatencyMs(Math.round(performance.now() - started));
       setRequestId(getLastRequestId());
       setHealth('ok');
@@ -28,6 +33,14 @@ export default function AppShell() {
       setHealthHint(toUserMessage(err, 'operator'));
     }
   }, []);
+
+  const refreshInbox = useCallback(async () => {
+    if (demo.status !== 'ready') return;
+    const data = await api.listInbox();
+    const items = unwrapInbox(data);
+    setInboxItems(items);
+    rememberInbox(items);
+  }, [demo.status]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -46,6 +59,26 @@ export default function AppShell() {
     if (demo.status === 'ready') void ping();
   }, [demo.status, ping]);
 
+  useEffect(() => {
+    void refreshInbox().catch(() => {
+      /* badges stay stale */
+    });
+  }, [refreshInbox, location.pathname]);
+
+  useEffect(() => {
+    const onChange = () => {
+      void refreshInbox().catch(() => {
+        /* badges stay stale */
+      });
+    };
+    window.addEventListener('signet:demo-reset', onChange);
+    window.addEventListener('signet:role', onChange);
+    return () => {
+      window.removeEventListener('signet:demo-reset', onChange);
+      window.removeEventListener('signet:role', onChange);
+    };
+  }, [refreshInbox]);
+
   const warming = demo.status === 'pending' || demo.status === 'warming';
   const down = demo.status === 'failed' || (demo.status === 'ready' && health === 'bad');
   const healthLabel = warming
@@ -63,6 +96,7 @@ export default function AppShell() {
         ? healthHint
         : null;
   const bannerTone = warming ? 'warn' : bannerText ? 'error' : null;
+  const counts = inboxCounts(inboxItems);
 
   return (
     <div className="shell">
@@ -83,6 +117,20 @@ export default function AppShell() {
           <div className="nav__label">Work</div>
           <NavLink to="/" end className={({ isActive }) => (isActive ? 'nav__link is-active' : 'nav__link')}>
             Inbox
+            {counts.open > 0 || counts.awaiting > 0 ? (
+              <span className="nav__badges" aria-hidden="true">
+                {counts.open > 0 ? (
+                  <span className="nav__badge" title="Open">
+                    {counts.open}
+                  </span>
+                ) : null}
+                {counts.awaiting > 0 ? (
+                  <span className="nav__badge nav__badge--wait" title="Awaiting checker">
+                    {counts.awaiting}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </NavLink>
           <NavLink to="/agent" className={({ isActive }) => (isActive ? 'nav__link is-active' : 'nav__link')}>
             Agent
@@ -119,21 +167,26 @@ export default function AppShell() {
               openapi.json
             </a>
           </div>
-          <p className="health__hint">Role</p>
-          <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-            {DEMO_ROLES.map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={`btn btn--small ${demo.role === item ? 'btn--gold' : ''}`}
-                disabled={demo.roleBusy || demo.status !== 'ready'}
-                data-testid={`role-${item}`}
-                onClick={() => void demo.switchRole(item)}
-              >
-                {item}
-              </button>
-            ))}
+          <div className="identity">
+            <p className="identity__meta">{demo.role}</p>
+            <div className="role-switch" role="radiogroup" aria-label="Role">
+              {DEMO_ROLES.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  role="radio"
+                  aria-checked={demo.role === item}
+                  className={`btn btn--small role-switch__btn${demo.role === item ? ' is-selected btn--gold' : ''}`}
+                  disabled={demo.roleBusy || demo.status !== 'ready'}
+                  data-testid={`role-${item}`}
+                  onClick={() => void demo.switchRole(item)}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
           </div>
+          <CommandPalette items={inboxItems} />
           <button
             className="btn btn--wide"
             type="button"

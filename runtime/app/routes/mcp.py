@@ -19,6 +19,7 @@ from app.services import exceptions as exception_service
 router = APIRouter(tags=["mcp"])
 
 PROTOCOL_VERSION = "2025-03-26"
+INBOX_RESOURCE_URI = "signet://inbox"
 
 TOOLS = [
     {
@@ -66,6 +67,15 @@ TOOLS = [
     },
 ]
 
+RESOURCES = [
+    {
+        "uri": INBOX_RESOURCE_URI,
+        "name": "inbox",
+        "description": "Open and awaiting-checker exception sessions for the current org.",
+        "mimeType": "application/json",
+    }
+]
+
 
 def _rpc_result(req_id: Any, result: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": req_id, "result": result}
@@ -83,6 +93,12 @@ def _tool_text(payload: Any, *, is_error: bool = False) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": text}], "isError": is_error}
 
 
+async def _inbox_items(db: AsyncSession, principal: Principal, settings: Settings) -> list[Any]:
+    if settings.DEMO_MODE:
+        await demo_tenant.ensure_inbox(db, principal.org_id)
+    return await exception_service.list_inbox(db, org_id=principal.org_id)
+
+
 async def _call_tool(
     name: str,
     arguments: dict[str, Any],
@@ -93,9 +109,7 @@ async def _call_tool(
 ) -> dict[str, Any]:
     args = arguments if isinstance(arguments, dict) else {}
     if name == "list_exceptions":
-        if settings.DEMO_MODE:
-            await demo_tenant.ensure_inbox(db, principal.org_id)
-        items = await exception_service.list_inbox(db, org_id=principal.org_id)
+        items = await _inbox_items(db, principal, settings)
         return _tool_text({"items": items})
     if name == "propose_remediation":
         if settings.DEMO_MODE:
@@ -125,6 +139,27 @@ async def _call_tool(
     return _tool_text({"error": f"Unknown tool: {name}"}, is_error=True)
 
 
+async def _read_resource(
+    uri: str,
+    *,
+    db: AsyncSession,
+    principal: Principal,
+    settings: Settings,
+) -> dict[str, Any] | None:
+    if uri != INBOX_RESOURCE_URI:
+        return None
+    items = await _inbox_items(db, principal, settings)
+    return {
+        "contents": [
+            {
+                "uri": INBOX_RESOURCE_URI,
+                "mimeType": "application/json",
+                "text": json.dumps({"items": items}, default=str),
+            }
+        ]
+    }
+
+
 async def _handle_method(
     message: dict[str, Any],
     *,
@@ -140,7 +175,10 @@ async def _handle_method(
             req_id,
             {
                 "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {"tools": {"listChanged": False}},
+                "capabilities": {
+                    "tools": {"listChanged": False},
+                    "resources": {"subscribe": False, "listChanged": False},
+                },
                 "serverInfo": {"name": "signet", "version": "0.2.0"},
             },
         )
@@ -150,6 +188,19 @@ async def _handle_method(
         return _rpc_result(req_id, {})
     if method == "tools/list":
         return _rpc_result(req_id, {"tools": TOOLS})
+    if method == "resources/list":
+        return _rpc_result(req_id, {"resources": RESOURCES})
+    if method == "resources/read":
+        uri = params.get("uri")
+        if not uri:
+            return _rpc_error(req_id, -32602, "Missing resource uri")
+        try:
+            contents = await _read_resource(str(uri), db=db, principal=principal, settings=settings)
+        except AppError as exc:
+            return _rpc_error(req_id, -32000, exc.message, {"error": exc.error})
+        if contents is None:
+            return _rpc_error(req_id, -32002, f"Resource not found: {uri}")
+        return _rpc_result(req_id, contents)
     if method == "tools/call":
         name = params.get("name")
         arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}

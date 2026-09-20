@@ -93,10 +93,15 @@ export async function switchRole(
   page: Page,
   role: 'operator' | 'checker' | 'auditor' | 'admin',
 ): Promise<void> {
-  const btn = page.getByTestId(`role-${role}`);
+  const btn = page.getByRole('radiogroup', { name: 'Role' }).getByRole('radio', { name: role, exact: true });
   await expect(btn).toBeEnabled({ timeout: KERNEL_TIMEOUT_MS });
   await btn.click();
-  await expect(btn).toHaveClass(/btn--gold/, { timeout: KERNEL_TIMEOUT_MS });
+  await expect(btn).toHaveAttribute('aria-checked', 'true', { timeout: KERNEL_TIMEOUT_MS });
+}
+
+export async function openCommandPalette(page: Page): Promise<void> {
+  await page.getByTestId('cmdk-launch').click();
+  await expect(page.getByTestId('command-palette')).toBeVisible();
 }
 
 export async function goInbox(page: Page): Promise<void> {

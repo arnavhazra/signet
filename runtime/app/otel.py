@@ -7,7 +7,7 @@ from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 from app.config import Settings
 
@@ -26,13 +26,10 @@ def setup_tracing(settings: Settings, engine=None) -> TracerProvider:
     resource = Resource.create({"service.name": settings.OTEL_SERVICE_NAME})
     provider = TracerProvider(resource=resource)
     endpoint = (settings.OTEL_EXPORTER_OTLP_ENDPOINT or "").strip()
+    # Hobby has no collector. An empty endpoint is a no-op provider (no stdout spans).
     if endpoint and not settings.TESTING:
         exporter = OTLPSpanExporter(endpoint=_http_traces_url(endpoint))
         provider.add_span_processor(BatchSpanProcessor(exporter))
-    elif settings.TESTING:
-        pass
-    else:
-        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
     trace.set_tracer_provider(provider)
     LoggingInstrumentor().instrument(set_logging_format=False)
     if engine is not None and not settings.TESTING:

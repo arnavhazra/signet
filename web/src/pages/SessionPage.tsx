@@ -8,14 +8,17 @@ import {
   sessionConcurrencyToken,
   unwrapAudit,
 } from '@/api/client';
-import type { AuditEvent, JsonObject, JsonValue, SessionSnapshot } from '@/api/types';
+import type { AuditEvent, JsonValue, SessionSnapshot } from '@/api/types';
 import ArtifactRenderer, { nodeFromSession } from '@/components/artifacts/ArtifactRenderer';
 import AuditLog from '@/components/AuditLog';
 import Citations from '@/components/Citations';
 import FactTable from '@/components/FactTable';
 import StatusPill from '@/components/StatusPill';
 import { toUserMessage } from '@/lib/errors';
+import { inboxWorkflowSlug, subscribeInboxCache } from '@/lib/inbox';
+import { usePageTitle } from '@/lib/pageTitle';
 import { isTerminalStatus } from '@/lib/presentation';
+import { sessionAnswerFacts, sessionHeading } from '@/lib/sessionChrome';
 
 function emitSessionTour(snapshot: SessionSnapshot): void {
   window.dispatchEvent(
@@ -38,7 +41,12 @@ export default function SessionPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [requestId, setRequestId] = useState<string | null>(null);
+  const [workflowSlug, setWorkflowSlug] = useState(() => inboxWorkflowSlug(id));
   const inFlight = useRef(false);
+  const retried = useRef(false);
+
+  const heading = snapshot ? sessionHeading(snapshot.accumulatedAnswers, workflowSlug) : 'Session';
+  usePageTitle(heading);
 
   const loadSession = useCallback(async (sessionId: string) => {
     const next = await api.getSession(sessionId);
@@ -56,6 +64,12 @@ export default function SessionPage() {
   }, []);
 
   useEffect(() => {
+    setWorkflowSlug(inboxWorkflowSlug(id));
+    return subscribeInboxCache(() => setWorkflowSlug(inboxWorkflowSlug(id)));
+  }, [id]);
+
+  useEffect(() => {
+    retried.current = false;
     if (!id) {
       setSnapshot(null);
       setAudit(null);
@@ -85,11 +99,9 @@ export default function SessionPage() {
   const checker = Boolean(snapshot?.awaitingChecker) || snapshot?.status === 'awaiting_checker';
 
   useEffect(() => {
-    if (!id || !snapshot || awaitingHuman || terminal) return;
-    const timer = window.setInterval(() => {
-      void loadSession(id).catch((err: unknown) => setError(toUserMessage(err, 'operator')));
-    }, 800);
-    return () => window.clearInterval(timer);
+    if (!id || !snapshot || awaitingHuman || terminal || retried.current) return;
+    retried.current = true;
+    void loadSession(id).catch((err: unknown) => setError(toUserMessage(err, 'operator')));
   }, [id, snapshot, awaitingHuman, terminal, loadSession]);
 
   async function advance(value: JsonValue) {
@@ -132,7 +144,10 @@ export default function SessionPage() {
     }
   }
 
-  const derivedFacts = useMemo(() => primitiveFacts(snapshot?.derived), [snapshot?.derived]);
+  const facts = useMemo(
+    () => sessionAnswerFacts(snapshot?.accumulatedAnswers, snapshot?.derived),
+    [snapshot?.accumulatedAnswers, snapshot?.derived],
+  );
 
   useEffect(() => {
     if (!snapshot) return;
@@ -157,8 +172,8 @@ export default function SessionPage() {
             <span aria-hidden="true"> / </span>
             Decision
           </p>
-          <h1>Exception {id ? id.slice(0, 8) : ''}</h1>
-          <p className="lede">Accept, reject, or request more data. High-delta items need a checker.</p>
+          <h1>{heading}</h1>
+          <p className="lede lede--mono">{snapshot?.sessionId ?? id}</p>
         </div>
         <div className="row">
           <StatusPill status={snapshot?.status ?? 'idle'} />
@@ -196,9 +211,7 @@ export default function SessionPage() {
                 />
               </>
             ) : terminal ? (
-              <p className="empty">
-                Session {snapshot?.status}. No human node.
-              </p>
+              <p className="empty">Session {snapshot?.status}. No human node.</p>
             ) : snapshot ? (
               <p className="empty">
                 <span className="spin" aria-hidden="true" /> Running…
@@ -214,35 +227,19 @@ export default function SessionPage() {
         <div className="stack">
           {snapshot ? (
             <section className="panel">
-              <p className="panel__stamp">Session</p>
-              <FactTable
-                facts={[
-                  { label: 'sessionId', value: snapshot.sessionId },
-                  { label: 'workflowId', value: snapshot.workflowId },
-                  { label: 'version', value: snapshot.version },
-                  { label: 'status', value: snapshot.status },
-                  { label: 'X-Request-Id', value: requestId ?? '—' },
-                ]}
-              />
+              <p className="panel__stamp">Facts</p>
+              {facts.length ? <FactTable facts={facts} /> : <p className="empty">No account facts on this snapshot.</p>}
+              <p className="help mt">
+                {snapshot.status} · v{snapshot.version} · {requestId ? requestId.slice(0, 8) : '—'}
+              </p>
             </section>
           ) : (
             <section className="panel">
-              <p className="panel__stamp">Session</p>
+              <p className="panel__stamp">Facts</p>
               <p className="empty">No snapshot yet.</p>
             </section>
           )}
           <Citations value={snapshot?.citations} />
-          {derivedFacts.length > 0 ? (
-            <section className="panel">
-              <p className="panel__stamp panel__stamp--server">Derived</p>
-              <FactTable facts={derivedFacts} />
-            </section>
-          ) : snapshot ? (
-            <section className="panel">
-              <p className="panel__stamp panel__stamp--server">Derived</p>
-              <p className="empty">No primitive derived fields.</p>
-            </section>
-          ) : null}
         </div>
       </div>
     </>
@@ -260,14 +257,4 @@ function outcomeNotice(value: JsonValue, status: string): string {
     return 'Parked for more data.';
   }
   return `Session ${status}.`;
-}
-
-function primitiveFacts(value: JsonObject | undefined): { label: string; value: JsonObject[string] }[] {
-  if (!value) return [];
-  return Object.entries(value)
-    .filter(([key, item]) => {
-      if (key === 'filters' || key === 'query') return false;
-      return item === null || typeof item !== 'object';
-    })
-    .map(([label, item]) => ({ label, value: item }));
 }

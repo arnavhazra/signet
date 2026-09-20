@@ -28,4 +28,20 @@ test.describe('Admin', () => {
     await page.getByTestId('action-accept_adjustment').click();
     await expect(page.getByRole('status').filter({ hasText: /Accepted/ })).toBeVisible();
   });
+
+  test('nav-signoff from inbox filter is numeric then approval', async ({ page }) => {
+    await readyConsole(page);
+    await page.getByTestId('inbox-filter-nav-signoff').click();
+    await expect(page.locator('[data-testid="inbox-row"][data-workflow="exception-review"]')).toHaveCount(0);
+    await page.locator('[data-testid="inbox-row"][data-workflow="nav-signoff"]').click();
+    await expect(page.getByRole('heading', { name: /A-NAV · NAV-FUND-1 · nav-signoff/ })).toBeVisible({
+      timeout: kernelTimeout(),
+    });
+    await expect(page.getByText('Override NAV')).toBeVisible();
+    await page.getByLabel('Override NAV').fill('105.5');
+    await page.getByRole('button', { name: 'Advance' }).click();
+    await expect(page.getByTestId('action-accept_adjustment')).toBeVisible({ timeout: kernelTimeout() });
+    await page.getByTestId('action-accept_adjustment').click();
+    await expect(page.getByRole('status').filter({ hasText: /Accepted/ })).toBeVisible();
+  });
 });

@@ -7,7 +7,10 @@ test.describe('Authz', () => {
     expect(sessionId).toBeTruthy();
 
     await switchRole(page, 'auditor');
-    await expect(page.getByTestId('role-auditor')).toHaveClass(/btn--gold/);
+    await expect(page.getByRole('radiogroup', { name: 'Role' }).getByRole('radio', { name: 'auditor' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
     await expect(page.getByTestId('inbox-table')).toBeVisible();
 
     const ingest = await page.request.post('/v1/events/exceptions', {

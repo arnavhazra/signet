@@ -12,15 +12,16 @@ Two equivalent doors. Pick one.
 
 ### MCP (Streamable HTTP)
 
-Point a Supervisor-class agent (or any MCP client) at `/mcp`. Auth is `X-API-Key`, Bearer JWT, or the demo cookie.
+Point a Supervisor-class agent (or any MCP client) at `/mcp`. On the public demo, auth is the visitor JWT (`accessToken`) from `GET /v1/auth/demo` as `Authorization: Bearer`, or the HttpOnly demo cookie. Do not send `X-API-Key: demo-runtime-key` on the public origin.
 
 ```json
 {
   "mcpServers": {
     "signet": {
+      "type": "http",
       "url": "https://signet-pearl-iota.vercel.app/mcp",
       "headers": {
-        "X-API-Key": "demo-runtime-key"
+        "Authorization": "Bearer <accessToken from GET /v1/auth/demo>"
       }
     }
   }
@@ -34,13 +35,15 @@ Point a Supervisor-class agent (or any MCP client) at `/mcp`. Auth is `X-API-Key
 | `get_session` | Agent (or ops UI) checks whether humans have moved | Snapshot; bindings stripped. |
 | `get_audit` | Agent or compliance reads the trail | Includes `agent.proposed` / `agent.denied`, human decisions, `remediation.written`. |
 
+Resource `signet://inbox` (`resources/list` / `resources/read`) is the same inbox payload as `list_exceptions`.
+
 Unknown tools are denied, audited, and have no side effect — the same posture as the HTTP allowlist.
 
 ### HTTP
 
 ```
 POST /v1/agent/propose
-Authorization: X-API-Key or Bearer
+Authorization: Bearer <accessToken from GET /v1/auth/demo>
 {
   "intent": "resolve_break",
   "accountId": "A-214",
@@ -63,9 +66,13 @@ Authorization: X-API-Key or Bearer
 ```
 
 ```bash
+TOKEN=$(curl -sS -c cookies -b cookies \
+  'https://signet-pearl-iota.vercel.app/v1/auth/demo?role=operator' \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["accessToken"])')
+
 curl -s -X POST https://signet-pearl-iota.vercel.app/v1/agent/propose \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: demo-runtime-key" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{"intent":"resolve_break","accountId":"A-214","rationale":"Delta exceeds threshold"}'
 ```
 
@@ -136,7 +143,7 @@ Keep the existing conversational agent. Do not route household or portfolio Q&A 
 
 ## Auth and demo
 
-Runtime routes (`/v1/*`, `/mcp`) accept `X-API-Key`, Bearer JWT, or the HttpOnly `signet_demo` cookie from `GET /v1/auth/demo`. Auditor is GET-only. Operator and checker may propose. Advancing `checker_approval` requires `checker` or `admin`.
+Runtime routes (`/v1/*`, `/mcp`) on the public demo accept the HttpOnly `signet_demo` cookie or `Authorization: Bearer` with `accessToken` from `GET /v1/auth/demo`. Auditor is GET-only. Operator and checker may propose. Advancing `checker_approval` requires `checker` or `admin`. API keys are for local/`TESTING` only; they do not authenticate the public origin.
 
 The public demo mints a per-visitor `org_id` so a cold link is an empty-of-other-people inbox. `POST /v1/demo/reset` reseeds that visitor only.
 

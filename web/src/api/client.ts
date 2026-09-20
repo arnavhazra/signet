@@ -99,19 +99,42 @@ export type DemoRuntime = {
   status: DemoRuntimeStatus;
   role: DemoRole;
   error: string | null;
+  accessToken: string | null;
+};
+
+export type DemoAuthResponse = {
+  ok: boolean;
+  role: string;
+  orgId: string;
+  accessToken: string;
 };
 
 type DemoListener = () => void;
 
 const HEALTH_BUDGET_MS = 45_000;
 const HEALTH_GAP_MS = 1_500;
+const WARMING_RETRY_MS = 800;
+const WARMING_STATUSES = new Set([502, 504, 524]);
 
 const demoListeners = new Set<DemoListener>();
-let demoRuntime: DemoRuntime = { status: 'pending', role: 'operator', error: null };
+let demoRuntime: DemoRuntime = { status: 'pending', role: 'operator', error: null, accessToken: null };
 let bootPromise: Promise<void> | null = null;
 
 export function getDemoRuntime(): DemoRuntime {
   return demoRuntime;
+}
+
+export function getDemoAccessToken(): string | null {
+  return demoRuntime.accessToken;
+}
+
+/**
+ * GET /health then GET /ready. AppShell LED should call this (not health alone)
+ * so green means Postgres is reachable, not just that the function booted.
+ */
+export async function pingKernel(): Promise<void> {
+  await request<unknown>('GET', '/health', 'none');
+  await request<unknown>('GET', '/ready', 'none');
 }
 
 export function subscribeDemoRuntime(listener: DemoListener): () => void {
@@ -144,7 +167,7 @@ async function waitForHealth(): Promise<void> {
   let last: unknown = null;
   while (Date.now() - started < HEALTH_BUDGET_MS) {
     try {
-      await request<unknown>('GET', '/health', 'none');
+      await pingKernel();
       return;
     } catch (err) {
       last = err;
@@ -165,7 +188,10 @@ async function readCookieMe(): Promise<AuthMe | null> {
 }
 
 async function mintDemoCookie(role: DemoRole): Promise<AuthMe> {
-  await request<unknown>('GET', `/v1/auth/demo${queryString({ role })}`, 'none');
+  const minted = await request<DemoAuthResponse>('GET', `/v1/auth/demo${queryString({ role })}`, 'none');
+  if (typeof minted?.accessToken === 'string' && minted.accessToken.trim()) {
+    setDemoRuntime({ accessToken: minted.accessToken.trim() });
+  }
   const me = await readCookieMe();
   if (!me) {
     throw new ApiError('Demo session failed', 0, null);
@@ -177,12 +203,8 @@ async function boot(): Promise<void> {
   try {
     await waitForHealth();
     const existing = await readCookieMe();
-    if (existing && isDemoRole(existing.role)) {
-      setDemoRuntime({ status: 'ready', role: existing.role, error: null });
-      emitRole(existing.role);
-      return;
-    }
-    const minted = await mintDemoCookie(demoRuntime.role);
+    const role = existing && isDemoRole(existing.role) ? existing.role : demoRuntime.role;
+    const minted = await mintDemoCookie(role);
     setDemoRuntime({ status: 'ready', role: minted.role as DemoRole, error: null });
     emitRole(minted.role as DemoRole);
   } catch (err) {
@@ -257,10 +279,21 @@ async function request<T>(method: string, path: string, auth: AuthMode, body?: u
   if (auth === 'session') {
     await waitForDemoSession();
   }
+  try {
+    return await send<T>(method, path, body);
+  } catch (err) {
+    if (err instanceof ApiError && WARMING_STATUSES.has(err.status)) {
+      await sleep(WARMING_RETRY_MS);
+      return await send<T>(method, path, body);
+    }
+    throw err;
+  }
+}
 
+async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
-  // Cookie only. Never attach X-API-Key or a baked admin JWT — production would
-  // fall through to the shared org (or 401 against a different JWT_SECRET).
+  // Cookie only. Never attach X-API-Key, a baked admin JWT, or the visitor
+  // accessToken — production API keys rejoin the shared org; Bearer is for MCP.
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
@@ -420,8 +453,11 @@ function issueList(value: unknown): string[] {
 
 export const api = {
   health: () => request<unknown>('GET', '/health', 'none'),
+  ready: () => request<unknown>('GET', '/ready', 'none'),
+  pingKernel,
 
-  demoAuth: (role = 'operator') => request<unknown>('GET', `/v1/auth/demo${queryString({ role })}`, 'none'),
+  demoAuth: (role = 'operator') =>
+    request<DemoAuthResponse>('GET', `/v1/auth/demo${queryString({ role })}`, 'none'),
 
   authMe: () => request<AuthMe>('GET', '/v1/auth/me', 'none'),
 

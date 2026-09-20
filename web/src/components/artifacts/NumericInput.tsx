@@ -13,11 +13,12 @@ type Props = {
 export default function NumericInput({ config, value, onChange, disabled, invalid }: Props) {
   const id = useId();
   const spec = readNumberConfig(config);
+  const label = typeof config.label === 'string' && config.label.trim() ? config.label : 'Value';
 
   return (
     <div className="field">
       <label htmlFor={id} className="field__label">
-        Value
+        {label}
       </label>
       <div className="numeric">
         <input

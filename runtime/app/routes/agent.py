@@ -6,14 +6,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.deps import Principal, client_ip, current_principal
 from app.config import Settings
 from app.db import get_db
-from app.schemas.api import ProposeBody
+from app.schemas.api import PROPOSE_EXAMPLE, ProposeBody, ProposeResponse, openapi_example
 from app.services import agent as agent_service
 from app.services import demo_tenant
 
 router = APIRouter(prefix="/v1", tags=["agent"])
 
 
-@router.post("/agent/propose")
+@router.post(
+    "/agent/propose",
+    response_model=ProposeResponse,
+    response_model_exclude_none=True,
+    responses={200: openapi_example(PROPOSE_EXAMPLE)},
+)
 async def propose(
     body: ProposeBody,
     request: Request,

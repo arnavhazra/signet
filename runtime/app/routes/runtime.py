@@ -9,7 +9,19 @@ from app.auth.deps import Principal, client_ip, current_principal, decode_token,
 from app.config import Settings
 from app.db import get_db
 from app.org import DEMO_COOKIE, new_visitor_org_id
-from app.schemas.api import AdvanceBody, AppError, ExceptionEvent
+from app.schemas.api import (
+    AUDIT_EXAMPLE,
+    INBOX_EXAMPLE,
+    SESSION_EXAMPLE,
+    AdvanceBody,
+    AppError,
+    AuditListResponse,
+    DemoAuthResponse,
+    ExceptionEvent,
+    InboxListResponse,
+    SessionSnapshot,
+    openapi_example,
+)
 from app.services import demo_tenant
 from app.services import exceptions as exception_service
 from app.services.workflows import get_active_public
@@ -19,7 +31,7 @@ router = APIRouter(prefix="/v1", tags=["runtime"])
 DEMO_ROLES = frozenset({"operator", "checker", "admin", "auditor"})
 
 
-@router.get("/auth/demo")
+@router.get("/auth/demo", response_model=DemoAuthResponse)
 async def demo_auth(
     request: Request,
     response: Response,
@@ -52,7 +64,7 @@ async def demo_auth(
         max_age=12 * 3600,
         path="/",
     )
-    return {"ok": True, "role": role, "orgId": org_id}
+    return {"ok": True, "role": role, "orgId": org_id, "accessToken": token}
 
 
 @router.get("/auth/me")
@@ -70,7 +82,7 @@ async def get_active_workflow(
     return await get_active_public(db, request.app.state.cache, slug)
 
 
-@router.get("/inbox")
+@router.get("/inbox", response_model=InboxListResponse, responses={200: openapi_example(INBOX_EXAMPLE)})
 async def get_inbox(
     request: Request,
     principal: Principal = Depends(current_principal),
@@ -97,7 +109,7 @@ async def reset_demo(
     return result
 
 
-@router.get("/audit")
+@router.get("/audit", response_model=AuditListResponse, responses={200: openapi_example(AUDIT_EXAMPLE)})
 async def search_audit(
     accountId: str | None = Query(default=None),
     eventType: str | None = Query(default=None),
@@ -134,7 +146,11 @@ async def ingest_exception(
     )
 
 
-@router.get("/sessions/{session_id}")
+@router.get(
+    "/sessions/{session_id}",
+    response_model=SessionSnapshot,
+    responses={200: openapi_example(SESSION_EXAMPLE)},
+)
 async def get_session(
     session_id: UUID,
     principal: Principal = Depends(current_principal),
@@ -162,7 +178,11 @@ async def advance_session(
     )
 
 
-@router.get("/sessions/{session_id}/audit")
+@router.get(
+    "/sessions/{session_id}/audit",
+    response_model=AuditListResponse,
+    responses={200: openapi_example(AUDIT_EXAMPLE)},
+)
 async def get_audit(
     session_id: UUID,
     principal: Principal = Depends(current_principal),

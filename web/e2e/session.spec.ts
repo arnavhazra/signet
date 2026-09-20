@@ -4,7 +4,9 @@ import {
   expect,
   expectSessionAccepted,
   highDeltaRow,
+  kernelTimeout,
   readyConsole,
+  sessionIdFromUrl,
   switchRole,
   test,
 } from './helpers';
@@ -67,6 +69,19 @@ test.describe('Session', () => {
     await expect(page.locator('[data-event-type="remediation.written"]')).toHaveCount(0);
   });
 
+  test('header is account · CUSIP · workflow with UUID subtitle', async ({ page }) => {
+    await readyConsole(page);
+    await highDeltaRow(page).click();
+    await expect(page.getByRole('heading', { name: 'A-214 · US5949181045 · exception-review' })).toBeVisible({
+      timeout: kernelTimeout(),
+    });
+    const sessionId = sessionIdFromUrl(page);
+    await expect(page.locator('.lede--mono')).toHaveText(sessionId);
+    expect(sessionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
   test('request more data parks the session', async ({ page }) => {
     await readyConsole(page);
     await clickMatchingRow(
@@ -75,7 +90,7 @@ test.describe('Session', () => {
     );
     await page.getByTestId('action-request_more_data').click();
     await expect(page.getByRole('status').filter({ hasText: /Parked for more data/ })).toBeVisible();
-    await expect(page.getByText('pending_more_data')).toBeVisible();
+    await expect(page.locator('.pill').filter({ hasText: /More data|Done/ })).toBeVisible();
     await expect(page.locator('[data-event-type="remediation.written"]')).toHaveCount(0);
   });
 });

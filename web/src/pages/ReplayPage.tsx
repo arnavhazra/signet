@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '@/api/client';
 import type { SessionReplay } from '@/api/types';
@@ -6,11 +6,15 @@ import Citations from '@/components/Citations';
 import FactTable from '@/components/FactTable';
 import StatusPill from '@/components/StatusPill';
 import { toUserMessage } from '@/lib/errors';
+import { usePageTitle } from '@/lib/pageTitle';
+import { sessionAnswerFacts, sessionHeading } from '@/lib/sessionChrome';
 
 export default function ReplayPage() {
   const { id = '' } = useParams();
   const [replay, setReplay] = useState<SessionReplay | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const heading = replay ? sessionHeading(replay.accumulatedAnswers, replay.slug) : 'Replay';
+  usePageTitle(heading);
 
   useEffect(() => {
     if (!id) return;
@@ -29,6 +33,11 @@ export default function ReplayPage() {
     };
   }, [id]);
 
+  const facts = useMemo(
+    () => sessionAnswerFacts(replay?.accumulatedAnswers, replay?.derived),
+    [replay?.accumulatedAnswers, replay?.derived],
+  );
+
   return (
     <>
       <header className="stage__head">
@@ -40,8 +49,8 @@ export default function ReplayPage() {
             <span aria-hidden="true"> / </span>
             Replay
           </p>
-          <h1>Replay {id ? id.slice(0, 8) : ''}</h1>
-          <p className="lede">Immutable workflow version and the stripped contract this operator saw.</p>
+          <h1>{heading}</h1>
+          <p className="lede lede--mono">{id}</p>
         </div>
         {replay ? <StatusPill status={`v${replay.version}`} /> : null}
       </header>
@@ -74,21 +83,13 @@ export default function ReplayPage() {
           </div>
           <div className="stack">
             <section className="panel">
-              <p className="panel__stamp">Version</p>
-              <FactTable
-                facts={[
-                  { label: 'workflowId', value: replay.workflowId },
-                  { label: 'slug', value: replay.slug },
-                  { label: 'version', value: replay.version },
-                  { label: 'createdAt', value: replay.createdAt },
-                ]}
-              />
+              <p className="panel__stamp">Facts</p>
+              {facts.length ? <FactTable facts={facts} /> : <p className="empty">No account facts on this replay.</p>}
+              <p className="help mt">
+                {replay.slug} · v{replay.version} · {replay.createdAt}
+              </p>
             </section>
             <Citations value={replay.citations} />
-            <section className="panel">
-              <p className="panel__stamp">Stored answers</p>
-              <pre className="json-view">{JSON.stringify(replay.accumulatedAnswers ?? {}, null, 2)}</pre>
-            </section>
           </div>
         </div>
       ) : null}

@@ -18,7 +18,7 @@ ExceptionEvent ──► FastAPI
 - **WorkflowSession** — durable in Postgres. Replay key is `workflowId + version`.
 - **Bindings** (`filter_value` | `filter_bracket` | `query_token`) never leave the server. `GET /v1/workflows/{slug}/active`, session snapshots, and replay payloads are stripped.
 - **Publish** — immutable versions; at most one `published` row per slug.
-- **Auth** — `X-API-Key`, Bearer JWT, or demo cookie (`GET /v1/auth/demo` when `DEMO_MODE=1`). Roles: `operator`, `checker`, `admin`, `auditor`.
+- **Auth** — Demo: HttpOnly cookie plus `accessToken` from `GET /v1/auth/demo` (Bearer for MCP). Local/`TESTING` without `DEMO_MODE` may use `X-API-Key`. Roles: `operator`, `checker`, `admin`, `auditor`.
 - **Rate limits** — ingest and advance (IP and/or API key).
 
 Hobby production: Vercel Python entry [`api/index.py`](../api/index.py) + Supabase Postgres. Redis and NATS are not on that path. `infra/` is an optional k8s envelope.
@@ -45,8 +45,9 @@ Leave `TESTING` unset. Seed publishes `exception-review` and `nav-signoff` and p
 ```bash
 curl -s localhost:8000/health
 curl -s localhost:8000/ready
-curl -s localhost:8000/v1/auth/demo          # Set-Cookie when DEMO_MODE=1
-curl -s -H "X-API-Key: demo-runtime-key" localhost:8000/v1/inbox
+curl -s localhost:8000/v1/auth/demo          # Set-Cookie + JSON accessToken when DEMO_MODE=1
+TOKEN=$(curl -s localhost:8000/v1/auth/demo | python3 -c 'import sys,json; print(json.load(sys.stdin)["accessToken"])')
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8000/v1/inbox
 ```
 
 Tests (SQLite in-memory):
@@ -65,8 +66,8 @@ Service listens on **0.0.0.0:8000**. Spec: `/openapi.json`.
 |---|---|---|
 | GET | `/health` | none |
 | GET | `/ready` | none (Postgres) |
-| GET | `/v1/auth/demo` | none when `DEMO_MODE=1` |
-| GET | `/v1/inbox` | cookie / JWT / `X-API-Key` |
+| GET | `/v1/auth/demo` | none when `DEMO_MODE=1`; JSON `{ ok, role, orgId, accessToken }` |
+| GET | `/v1/inbox` | cookie / JWT |
 | POST | `/v1/events/exceptions` | operator / checker / API key; optional `Idempotency-Key` |
 | GET | `/v1/sessions/{id}` | cookie / JWT / API key |
 | POST | `/v1/sessions/{id}/advance` | operator / checker / API key; `expectedUpdatedAt` → `409` |

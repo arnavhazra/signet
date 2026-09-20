@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { AuditEvent } from '@/api/types';
-import { auditGroup, explainAudit } from '@/lib/audit';
+import { AUDIT_PHASES, auditGroup, auditPhaseHit, explainAudit, sortAuditChronological } from '@/lib/audit';
 import { formatDisplay } from '@/lib/presentation';
 
 type Props = {
@@ -9,6 +9,8 @@ type Props = {
 
 export default function AuditLog({ events }: Props) {
   const [rawOpen, setRawOpen] = useState(false);
+  const chronological = sortAuditChronological(events);
+  const phases = auditPhaseHit(events);
 
   return (
     <section className="panel" aria-labelledby="audit-heading">
@@ -16,15 +18,25 @@ export default function AuditLog({ events }: Props) {
         Audit trail
       </p>
       <p className="help">
-        Agent proposals, human decisions, and remediation writes are distinct rows. Raw event types stay one click
-        away.
+        Ingest → halt → agent/human → remediation.written. Raw event types stay one click away.
       </p>
       {events.length === 0 ? (
         <p className="empty">No audit events returned for this session.</p>
       ) : (
         <>
+          <ol className="audit-axis" aria-label="Trace">
+            {AUDIT_PHASES.map((phase) => (
+              <li
+                key={phase.id}
+                className={`${phases[phase.id] ? 'is-on' : ''}${phase.id === 'write' ? ' is-write' : ''}`}
+              >
+                <span className="audit-axis__dot" />
+                {phase.label}
+              </li>
+            ))}
+          </ol>
           <ol className="audit-list">
-            {events.map((event, index) => {
+            {chronological.map((event, index) => {
               const view = explainAudit(event, index);
               const group = auditGroup(view.rawType);
               return (
@@ -35,9 +47,7 @@ export default function AuditLog({ events }: Props) {
                   data-event-type={view.rawType}
                 >
                   <div className="audit-list__headline">{view.headline}</div>
-                  <div className="audit-list__meta">
-                    {[view.when, view.rawType].filter(Boolean).join(' · ')}
-                  </div>
+                  <div className="audit-list__meta">{[view.when, view.rawType].filter(Boolean).join(' · ')}</div>
                   <p className="audit-list__plain">{view.detail}</p>
                 </li>
               );
@@ -45,8 +55,7 @@ export default function AuditLog({ events }: Props) {
           </ol>
           <button
             type="button"
-            className="btn btn--ghost"
-            style={{ marginTop: 12 }}
+            className="btn btn--ghost mt"
             aria-expanded={rawOpen}
             onClick={() => setRawOpen((open) => !open)}
           >
@@ -54,7 +63,7 @@ export default function AuditLog({ events }: Props) {
           </button>
           {rawOpen ? (
             <ol className="audit-list audit-list--raw">
-              {events.map((event, index) => {
+              {chronological.map((event, index) => {
                 const view = explainAudit(event, index);
                 const group = auditGroup(view.rawType);
                 const detail = event.detail !== undefined ? event.detail : event.payload;
@@ -62,9 +71,7 @@ export default function AuditLog({ events }: Props) {
                   <li key={`raw-${view.id}`} data-audit-kind={group} data-event-type={view.rawType}>
                     <div className="mono">{view.rawType}</div>
                     <div className="audit-list__meta">{view.when ?? '—'}</div>
-                    {detail !== undefined ? (
-                      <pre className="json-view">{formatDisplay(detail)}</pre>
-                    ) : null}
+                    {detail !== undefined ? <pre className="json-view">{formatDisplay(detail)}</pre> : null}
                   </li>
                 );
               })}

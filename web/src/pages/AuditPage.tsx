@@ -5,6 +5,7 @@ import type { AuditEvent } from '@/api/types';
 import AuditLog from '@/components/AuditLog';
 import { auditGroup, auditKind, type AuditKindGroup } from '@/lib/audit';
 import { toUserMessage } from '@/lib/errors';
+import { usePageTitle } from '@/lib/pageTitle';
 
 const FILTERS: { id: 'all' | AuditKindGroup; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -23,18 +24,19 @@ export default function AuditPage() {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['id']>('all');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  usePageTitle('Audit');
 
   useEffect(() => {
     if (sessionFromQuery) setSessionId(sessionFromQuery);
   }, [sessionFromQuery]);
 
   useEffect(() => {
-    if (!sessionFromQuery) return;
     let cancelled = false;
     setBusy(true);
     setError(null);
+    const query = sessionFromQuery ? { sessionId: sessionFromQuery } : {};
     void api
-      .searchAudit({ sessionId: sessionFromQuery })
+      .searchAudit(query)
       .then((raw) => {
         if (!cancelled) setEvents(unwrapAudit(raw));
       })
@@ -79,7 +81,7 @@ export default function AuditPage() {
       <header className="stage__head">
         <div>
           <p className="kicker">Audit</p>
-          <h1>Search</h1>
+          <h1>Trail</h1>
           <p className="lede">Read-only. Agent, human, and remediation writes stay distinct.</p>
         </div>
       </header>
@@ -106,8 +108,8 @@ export default function AuditPage() {
             </button>
           ))}
         </div>
-        <div className="row" style={{ alignItems: 'flex-end', marginTop: 12 }}>
-          <div className="field" style={{ flex: 1, minWidth: 160 }}>
+        <div className="row row--end mt">
+          <div className="field field--grow">
             <label htmlFor="audit-account">Account</label>
             <input
               id="audit-account"
@@ -116,7 +118,7 @@ export default function AuditPage() {
               autoComplete="off"
             />
           </div>
-          <div className="field" style={{ flex: 1, minWidth: 160 }}>
+          <div className="field field--grow">
             <label htmlFor="audit-type">Event type</label>
             <input
               id="audit-type"
@@ -126,7 +128,7 @@ export default function AuditPage() {
               autoComplete="off"
             />
           </div>
-          <div className="field" style={{ flex: 1, minWidth: 200 }}>
+          <div className="field field--wide">
             <label htmlFor="audit-session">Session</label>
             <input
               id="audit-session"
@@ -141,7 +143,7 @@ export default function AuditPage() {
           </button>
         </div>
         {linked ? (
-          <p className="help" style={{ marginTop: 12 }}>
+          <p className="help mt">
             Open <Link to={`/sessions/${encodeURIComponent(linked)}`}>session</Link>
             {' · '}
             <Link to={`/sessions/${encodeURIComponent(linked)}/replay`}>replay</Link>
@@ -149,7 +151,7 @@ export default function AuditPage() {
         ) : null}
       </form>
 
-      <div style={{ marginTop: 16 }}>
+      <div className="mt">
         {visible ? (
           visible.length === 0 ? (
             <section className="panel">
@@ -160,7 +162,7 @@ export default function AuditPage() {
           )
         ) : (
           <section className="panel">
-            <p className="empty">Run a search.</p>
+            <p className="empty">{busy ? 'Loading trail…' : 'No audit events yet.'}</p>
           </section>
         )}
       </div>

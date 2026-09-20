@@ -49,3 +49,28 @@ async def test_request_id_echo(client):
 async def test_missing_api_key(client):
     response = await client.get("/v1/workflows/exception-review/active")
     assert response.status_code == 401
+
+
+async def test_openapi_core_examples(client):
+    spec = (await client.get("/openapi.json")).json()
+    schemas = spec["components"]["schemas"]
+    inbox = spec["paths"]["/v1/inbox"]["get"]["responses"]["200"]["content"]["application/json"]
+    assert "A-214" in str(inbox.get("example") or schemas.get("InboxListResponse", {}))
+    session = spec["paths"]["/v1/sessions/{session_id}"]["get"]
+    assert session.get("responses", {}).get("200")
+    propose = spec["paths"]["/v1/agent/propose"]["post"]["responses"]["200"]["content"]["application/json"]
+    assert "requires_human" in str(propose.get("example") or schemas.get("ProposeResponse", {}))
+    audit = spec["paths"]["/v1/audit"]["get"]["responses"]["200"]["content"]["application/json"]
+    assert "events" in str(audit.get("example") or schemas.get("AuditListResponse", {}))
+    assert "accessToken" in schemas["DemoAuthResponse"]["properties"]
+
+
+def test_otel_module_has_no_console_exporter():
+    from pathlib import Path
+
+    from app import otel
+
+    source = Path(otel.__file__).read_text()
+    assert "from opentelemetry.sdk.trace.export import BatchSpanProcessor" in source
+    assert "ConsoleSpanExporter" not in source
+    assert "SimpleSpanProcessor" not in source

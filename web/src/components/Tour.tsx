@@ -12,6 +12,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getDemoRuntime } from '@/api/client';
 import { useDemoSession } from '@/auth/DemoSession';
+import { useFocusTrap } from '@/lib/focusTrap';
 import { TOUR_STORAGE_KEY } from '@/lib/tourStorage';
 
 export type TourStepId =
@@ -577,18 +578,7 @@ export default function Tour() {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const reduced = prefersReducedMotion();
-
-  useEffect(() => {
-    if (!active) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        skip();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [active, skip]);
+  useFocusTrap(active, cardRef, skip);
 
   useEffect(() => {
     if (!active) {
@@ -627,11 +617,6 @@ export default function Tour() {
     };
   }, [active, reduced, step.id, step.target]);
 
-  useEffect(() => {
-    if (!active) return;
-    cardRef.current?.focus();
-  }, [active, step.id]);
-
   if (!active) return null;
 
   const spotStyle = rect
@@ -650,6 +635,7 @@ export default function Tour() {
         ref={cardRef}
         className="tour__card"
         role="dialog"
+        aria-modal="true"
         aria-labelledby="tour-title"
         aria-describedby="tour-body"
         tabIndex={-1}

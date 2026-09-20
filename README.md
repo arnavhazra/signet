@@ -35,7 +35,7 @@ Browser
 - **Audit-first tools.** Clients cannot name tools. The DAG names an allowlisted `toolName`. Unknown tools are denied, audited, and produce no side effect. `remediations.audit_event_id` is a required FK.
 - **Agent policy.** `POST /v1/agent/propose` and MCP tools classify intents on the server. Write-class proposals open a HITL session; reads are served and audited; unknown intents are denied with no side effect. Agents cannot name tools or skip dual control.
 - **Roles.** `operator`, `checker`, `admin`, `auditor`. Auditor is GET-only (inbox, session, audit, replay). Operator/checker may ingest, advance, and propose. Advancing a `checker*` node (`checker_approval`) requires `checker` or `admin`; an operator receives `403`. Admin owns catalog, preview, publish. Runtime API keys cannot publish.
-- **Auth.** `X-API-Key` on `/v1/*` and `/mcp` for tests and local clients. Demo mode (`DEMO_MODE=1`) issues an HttpOnly `signet_demo` cookie via `GET /v1/auth/demo`. Subsequent `/v1`, `/mcp`, and `/admin` accept cookie, Bearer JWT, or API key. Rate-limit ingest, advance, and propose by IP (and by key when present). `POST /v1/demo/reset` is rate-limited.
+- **Auth.** Tests and local (`DEMO_MODE=0`) may use `X-API-Key`. Production demo (`DEMO_MODE=1`) mints an HttpOnly `signet_demo` cookie via `GET /v1/auth/demo` and returns a short-lived visitor JWT in JSON field `accessToken` for MCP `Authorization: Bearer`. Cookie-first SPA fetches do not send API keys. Subsequent `/v1`, `/mcp`, and `/admin` accept cookie or Bearer JWT; API keys are rejected in demo mode so a leaked key cannot join the shared org. Rate-limit ingest, advance, and propose by IP (and by key when present). `POST /v1/demo/reset` is rate-limited.
 - **RLS and tenancy.** Rows carry `org_id`. Postgres RLS scopes sessions, audit, remediations, and events to the caller’s org. Demo mode mints a per-visitor `org_id` into the `signet_demo` cookie so each visitor gets an isolated inbox.
 
 Every response includes `X-Request-Id` (echo incoming or generate).
@@ -44,12 +44,16 @@ Every response includes `X-Request-Id` (echo incoming or generate).
 
 | Path | Screen |
 | --- | --- |
-| `/` | Inbox — account, CUSIP, book, custodian, server-derived delta, age, status (`open` / `awaiting_checker` / `done`) |
-| `/sessions/:id` | Decision — SDUI card. Accept / reject / request more data. High `\|delta\|` requires a second checker approval. |
-| `/sessions/:id/replay` | Immutable `workflowId` + `version`, stripped contract vs stored citations |
-| `/audit` | Read-only search by account / session / event type |
+The rail is a compact ops console: role radiogroup, queue badges, `⌘K` command palette.
+
+| Path | Screen |
+| --- | --- |
+| `/` | Inbox — chips (`exception-review` / `nav-signoff` / `open` / `awaiting_checker` / `done`), New mismatch inject, account, CUSIP, book, custodian, server-derived delta, age, status |
+| `/sessions/:id` | Decision — title is account · CUSIP · workflow; UUID subtitle. Accept / reject / request more data. High `\|delta\|` requires a second checker approval. |
+| `/sessions/:id/replay` | Same account · CUSIP header. Immutable `workflowId` + `version`, stripped contract vs stored citations |
+| `/audit` | Default-loads this visitor’s trail. Timeline: ingest → halt → agent/human → `remediation.written` |
 | `/admin` | Catalog, lint on preview/publish, stripped contract fetch |
-| `/agent` | Agent console — canned Write / Read / Deny, free-text prompt, typed proposal, policy verdict, audit row, curl / MCP |
+| `/agent` | Agent console — canned Write / Read / Deny, free-text prompt, typed proposal, policy verdict, audit row, curl / MCP. Contract tab uses visitor JWT Bearer, not an API key |
 
 Seeded workflows: `exception-review` (maker-checker on large deltas) and `nav-signoff` (numeric override then approval). Same kernel, different definition JSON.
 
@@ -120,7 +124,7 @@ Decision `denied`. Audit: `agent.denied`. No session, no remediation.
 
 ### MCP
 
-Streamable HTTP at `/mcp`. A Supervisor-class agent registers this URL as an external MCP server. Auth is the same as `/v1` (`X-API-Key`, Bearer JWT, or demo cookie).
+Streamable HTTP at `/mcp`. A Supervisor-class agent registers this URL as an external MCP server. Auth on the public demo is the visitor JWT from `GET /v1/auth/demo` (`accessToken`) as `Authorization: Bearer`, or the demo cookie. Do not send `X-API-Key: demo-runtime-key` on the public origin.
 
 | Tool | Role |
 | --- | --- |
@@ -129,13 +133,16 @@ Streamable HTTP at `/mcp`. A Supervisor-class agent registers this URL as an ext
 | `get_session` | Session snapshot; bindings stripped |
 | `get_audit` | Audit events |
 
+Resource: `signet://inbox` (`resources/list` + `resources/read`) is the same payload as `list_exceptions`.
+
 ```json
 {
   "mcpServers": {
     "signet": {
+      "type": "http",
       "url": "https://signet-pearl-iota.vercel.app/mcp",
       "headers": {
-        "X-API-Key": "demo-runtime-key"
+        "Authorization": "Bearer <accessToken from GET /v1/auth/demo>"
       }
     }
   }
@@ -154,7 +161,7 @@ Interactive spec: `/openapi.json` (FastAPI `/docs` when served).
 | --- | --- | --- | --- |
 | `GET` | `/health` | none | `{status: ok}` |
 | `GET` | `/ready` | none | 200 when Postgres is reachable |
-| `GET` | `/v1/auth/demo` | none (`DEMO_MODE=1`) | Sets HttpOnly `signet_demo` cookie; per-visitor `org_id` |
+| `GET` | `/v1/auth/demo` | none (`DEMO_MODE=1`) | Sets HttpOnly `signet_demo` cookie; JSON `{ ok, role, orgId, accessToken }` |
 | `POST` | `/v1/demo/reset` | demo mode | Reseed this visitor’s inbox. Rate-limited. |
 | `GET` | `/v1/inbox` | operator / checker / auditor / API key | `{ items: [{ sessionId, accountId, securityId, bookQty, custodianQty, delta, asOf, status, awaitingChecker, createdAt, workflowSlug }] }` — open and `awaiting_checker` first |
 | `POST` | `/v1/events/exceptions` | operator / checker / API key | Ingest. Optional `Idempotency-Key`. Unique `(org_id, source)`. Replay of the same event returns the existing session `200`. Auditor `403`. |
@@ -165,7 +172,7 @@ Interactive spec: `/openapi.json` (FastAPI `/docs` when served).
 | `GET` | `/v1/sessions/{id}/replay` | operator / checker / auditor / API key | `{ workflowId, version, slug, stripped, citations, accumulatedAnswers, derived, createdAt }` |
 | `GET` | `/v1/audit` | operator / checker / auditor / API key | Query `accountId`, `eventType`, `sessionId` → `{ events }` |
 | `GET` | `/v1/workflows/{slug}/active` | API key / cookie / JWT | Public wizard contract; no `binding` keys |
-| `GET` `POST` | `/mcp` | cookie / JWT / API key | MCP Streamable HTTP. Tools: `list_exceptions`, `propose_remediation`, `get_session`, `get_audit`. |
+| `GET` `POST` | `/mcp` | cookie / JWT | MCP Streamable HTTP. Tools: `list_exceptions`, `propose_remediation`, `get_session`, `get_audit`. Resource: `signet://inbox`. |
 | `GET` `POST` | `/admin/workflows` | admin | List / create |
 | `GET` | `/admin/workflows/{id}` | admin | Full definition (bindings may be present) |
 | `POST` | `/admin/workflows/{id}/preview` | admin | Dry-run `{filters, derived}` plus linter issues |
@@ -179,7 +186,7 @@ Lint rejects cycles and tool nodes missing `toolName` before publish.
 cd runtime && pytest -q          # SQLite in-memory; no network
 ```
 
-Kernel coverage: halt/resume, reject, more-data, maker-checker, checker-node `403` for operator, second workflow, bindings stripped on active + snapshots, idempotent ingest, concurrent advance `409`, tool deny `403`, lint (cycles, missing `toolName`), auditor cannot POST ingest/advance, auth and rate limit, agent policy (write blocked, read served, unknown denied), MCP list/call, per-visitor org isolation.
+Kernel coverage: halt/resume, reject, more-data, maker-checker, checker-node `403` for operator, second workflow, bindings stripped on active + snapshots, idempotent ingest, concurrent advance `409`, tool deny `403`, lint (cycles, missing `toolName`), auditor cannot POST ingest/advance, auth and rate limit, agent policy (write blocked, read served, unknown denied), MCP list/call, visitor JWT + `signet://inbox` resource, per-visitor org isolation.
 
 ```bash
 cd web && npm run test:e2e

@@ -103,6 +103,18 @@ class AdvanceBody(BaseModel):
 
 
 class ProposeBody(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "intent": "resolve_break",
+                    "accountId": "A-214",
+                    "rationale": "Book vs custodian delta exceeds threshold",
+                }
+            ]
+        }
+    )
+
     intent: str | None = None
     text: str | None = None
     accountId: str | None = None
@@ -128,27 +140,166 @@ class ActiveWorkflow(BaseModel):
     steps: list[PublicStep]
 
 
+INBOX_EXAMPLE: dict[str, Any] = {
+    "items": [
+        {
+            "sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "accountId": "A-214",
+            "securityId": "US5949181045",
+            "bookQty": 5000.0,
+            "custodianQty": 4880.0,
+            "delta": 120.0,
+            "asOf": "2026-09-15",
+            "status": "open",
+            "awaitingChecker": False,
+            "createdAt": "2026-09-15T14:00:00.000000Z",
+            "workflowSlug": "exception-review",
+        }
+    ]
+}
+
+SESSION_EXAMPLE: dict[str, Any] = {
+    "sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "status": "awaiting_input",
+    "currentNode": {
+        "id": "maker_approval",
+        "questionId": "decision",
+        "title": "Accept adjustment?",
+        "artifactType": "approval_card",
+        "config": {},
+        "helperText": None,
+    },
+    "accumulatedAnswers": {"accountId": "A-214", "securityId": "US5949181045"},
+    "derived": {"delta": 120.0},
+    "citations": [{"source": "book", "recordId": "A-214", "asOf": "2026-09-15"}],
+    "workflowId": "11111111-1111-1111-1111-111111111111",
+    "version": 1,
+    "updatedAt": "2026-09-15T14:00:01.000000Z",
+    "awaitingChecker": False,
+    "orgId": "org_v_example",
+}
+
+PROPOSE_EXAMPLE: dict[str, Any] = {
+    "decision": "requires_human",
+    "policy": {"rule": "write_class_requires_human", "threshold": 100, "delta": 120},
+    "sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "approvalUrl": "/sessions/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "auditEventId": "22222222-2222-2222-2222-222222222222",
+    "proposal": {"intent": "resolve_break", "accountId": "A-214"},
+}
+
+AUDIT_EXAMPLE: dict[str, Any] = {
+    "events": [
+        {
+            "id": "33333333-3333-3333-3333-333333333333",
+            "sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "eventType": "agent.proposed",
+            "actor": "operator",
+            "payload": {"intent": "resolve_break", "accountId": "A-214", "decision": "requires_human"},
+            "createdAt": "2026-09-15T14:00:02.000000Z",
+        }
+    ]
+}
+
+DEMO_AUTH_EXAMPLE: dict[str, Any] = {
+    "ok": True,
+    "role": "operator",
+    "orgId": "org_v_example",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example",
+}
+
+
+def openapi_example(value: dict[str, Any]) -> dict[str, Any]:
+    return {"content": {"application/json": {"example": value}}}
+
+
 class CurrentNode(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     id: str
     questionId: str | None = None
-    title: str
-    artifactType: str
-    config: dict[str, Any]
+    title: str = ""
+    artifactType: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
     helperText: str | None = None
 
 
 class Citation(BaseModel):
-    source: str
-    recordId: str
-    asOf: str
+    model_config = ConfigDict(extra="allow")
+
+    source: str | None = None
+    recordId: str | None = None
+    asOf: str | None = None
 
 
 class SessionSnapshot(BaseModel):
+    model_config = ConfigDict(extra="allow", json_schema_extra={"examples": [SESSION_EXAMPLE]})
+
     sessionId: str
-    status: Literal["created", "active", "awaiting_input", "completed", "failed"]
-    currentNode: CurrentNode | None
-    accumulatedAnswers: dict[str, Any]
-    derived: dict[str, Any]
-    citations: list[Citation]
+    status: Literal["created", "active", "awaiting_input", "completed", "failed"] | str
+    currentNode: CurrentNode | None = None
+    accumulatedAnswers: dict[str, Any] = Field(default_factory=dict)
+    derived: dict[str, Any] = Field(default_factory=dict)
+    citations: list[Citation] = Field(default_factory=list)
     workflowId: str
     version: int
+    updatedAt: str | None = None
+    awaitingChecker: bool = False
+    orgId: str | None = None
+
+
+class InboxItem(BaseModel):
+    sessionId: str
+    accountId: str = ""
+    securityId: str = ""
+    bookQty: float | None = None
+    custodianQty: float | None = None
+    delta: float = 0.0
+    asOf: str = ""
+    status: str
+    awaitingChecker: bool = False
+    createdAt: str | None = None
+    workflowSlug: str = ""
+
+
+class InboxListResponse(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"examples": [INBOX_EXAMPLE]})
+
+    items: list[InboxItem] = Field(default_factory=list)
+
+
+class AuditEventOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    sessionId: str | None = None
+    eventType: str
+    actor: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    createdAt: str | None = None
+
+
+class AuditListResponse(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"examples": [AUDIT_EXAMPLE]})
+
+    events: list[AuditEventOut] = Field(default_factory=list)
+
+
+class ProposeResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", json_schema_extra={"examples": [PROPOSE_EXAMPLE]})
+
+    decision: Literal["requires_human", "auto_executed", "denied"] | str
+    policy: dict[str, Any] = Field(default_factory=dict)
+    auditEventId: str
+    proposal: dict[str, Any] = Field(default_factory=dict)
+    sessionId: str | None = None
+    approvalUrl: str | None = None
+
+
+class DemoAuthResponse(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"examples": [DEMO_AUTH_EXAMPLE]})
+
+    ok: bool = True
+    role: str
+    orgId: str
+    accessToken: str

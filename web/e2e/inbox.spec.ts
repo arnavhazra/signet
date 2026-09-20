@@ -52,4 +52,46 @@ test.describe('Inbox', () => {
     await resetDemo(page);
     await expect(highDeltaRow(page)).toHaveAttribute('data-account', 'A-214');
   });
+
+  test('queue chips filter by workflow and status', async ({ page }) => {
+    await readyConsole(page);
+    const chips = page.getByRole('group', { name: 'Queue filters' });
+    await expect(chips.getByTestId('inbox-filter-all')).toHaveAttribute('aria-pressed', 'true');
+
+    await chips.getByTestId('inbox-filter-exception-review').click();
+    const exceptionRows = inboxRows(page);
+    await expect(exceptionRows).toHaveCount(3);
+    const exceptionWorkflows = await exceptionRows.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('data-workflow') || ''),
+    );
+    expect(new Set(exceptionWorkflows)).toEqual(new Set(['exception-review']));
+    await expect(highDeltaRow(page)).toBeVisible();
+    await expect(page.locator('[data-testid="inbox-row"][data-account="A-NAV"]')).toHaveCount(0);
+
+    await chips.getByTestId('inbox-filter-nav-signoff').click();
+    await expect(inboxRows(page)).toHaveCount(1);
+    await expect(inboxRows(page)).toHaveAttribute('data-workflow', 'nav-signoff');
+    await expect(inboxRows(page)).toHaveAttribute('data-account', 'A-NAV');
+
+    await chips.getByTestId('inbox-filter-open').click();
+    const openRows = inboxRows(page);
+    await expect(openRows).toHaveCount(4);
+    const statuses = await openRows.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-status') || ''));
+    expect(new Set(statuses)).toEqual(new Set(['open']));
+
+    await chips.getByTestId('inbox-filter-done').click();
+    await expect(page.getByText('No rows for this filter.')).toBeVisible();
+  });
+
+  test('New mismatch injects a unique session', async ({ page }) => {
+    await readyConsole(page);
+    await expect(inboxRows(page)).toHaveCount(4);
+    await page.getByTestId('inbox-inject').click();
+    await expect(page.getByRole('heading', { name: /A-100 · US0378331005/ })).toBeVisible({
+      timeout: kernelTimeout(),
+    });
+    await goInbox(page);
+    await expect(inboxRows(page)).toHaveCount(5);
+    await expect(page.locator('[data-testid="inbox-row"][data-account="A-100"]')).toHaveCount(2);
+  });
 });

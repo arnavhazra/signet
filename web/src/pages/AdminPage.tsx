@@ -7,6 +7,7 @@ import {
   unwrapList,
 } from '@/api/client';
 import { toUserMessage } from '@/lib/errors';
+import { usePageTitle } from '@/lib/pageTitle';
 import type {
   ActiveWorkflow,
   AdminWorkflow,
@@ -36,6 +37,7 @@ export default function AdminPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [listReady, setListReady] = useState(false);
+  usePageTitle('Admin');
 
   const refreshList = useCallback(async () => {
     const data = await api.listWorkflows();
@@ -213,11 +215,11 @@ export default function AdminPage() {
             <p className="panel__stamp">Definition</p>
             <div className="stack">
               <div className="row">
-                <div className="field" style={{ flex: 1, minWidth: 160 }}>
+                <div className="field field--grow">
                   <label htmlFor="wf-slug">Slug</label>
                   <input id="wf-slug" value={slug} onChange={(event) => setSlug(event.target.value)} />
                 </div>
-                <div className="field" style={{ flex: 1, minWidth: 160 }}>
+                <div className="field field--grow">
                   <label htmlFor="wf-name">Name</label>
                   <input id="wf-name" value={name} onChange={(event) => setName(event.target.value)} />
                 </div>
@@ -246,18 +248,17 @@ export default function AdminPage() {
           <section className="panel">
             <p className="panel__stamp">Preview inputs</p>
             <p className="help">Dry-run against this version. Lint errors surface here before publish.</p>
-            <div className="field" style={{ marginTop: 12 }}>
+            <div className="field mt">
               <label htmlFor="wf-inputs">Inputs JSON</label>
               <textarea
                 id="wf-inputs"
-                className="textarea"
-                style={{ minHeight: 120 }}
+                className="textarea textarea--short"
                 spellCheck={false}
                 value={inputsText}
                 onChange={(event) => setInputsText(event.target.value)}
               />
             </div>
-            <div className="row" style={{ marginTop: 12 }}>
+            <div className="row mt">
               <button className="btn btn--gold" type="button" disabled={busy} onClick={() => void previewWorkflow()}>
                 Preview
               </button>
@@ -270,7 +271,7 @@ export default function AdminPage() {
             <p className="panel__stamp">Artifact preview</p>
             <p className="help">Renderer only. Binding keys are ignored by artifact components.</p>
             {previewNodes.length > 0 ? (
-              <div className="stack" style={{ marginTop: 16 }}>
+              <div className="stack mt-lg">
                 {previewNodes.map((node) => (
                   <ArtifactRenderer
                     key={node.id}
@@ -293,14 +294,14 @@ export default function AdminPage() {
               Runtime contract after <span className="mono">strip_bindings</span>. Compare with the
               admin JSON: <span className="mono">binding</span> is present there and absent here.
             </p>
-            <div className="row" style={{ marginTop: 12 }}>
+            <div className="row mt">
               <button className="btn" type="button" disabled={busy || !slug} onClick={() => void fetchStripped()} data-testid="fetch-stripped">
                 Fetch stripped contract
               </button>
               {active ? <StatusPill status={`v${active.version}`} /> : null}
             </div>
             {active ? (
-              <div className="stack" style={{ marginTop: 16 }} data-testid="stripped-contract">
+              <div className="stack mt-lg" data-testid="stripped-contract">
                 <Factish workflow={active} />
                 <pre className="json-view">{JSON.stringify(active, null, 2)}</pre>
                 {active.steps?.map((step) => (
@@ -317,9 +318,12 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div style={{ marginTop: 24 }}>
-        <RendererKit />
-      </div>
+      <details className="frame mt-xl">
+        <summary>Renderer kit</summary>
+        <div className="frame__body">
+          <RendererKit />
+        </div>
+      </details>
     </>
   );
 }

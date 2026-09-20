@@ -52,6 +52,9 @@ export function toUserMessage(
       return 'Rate limited. Wait a few seconds and retry.';
     }
     if (err.status === 503) return 'Kernel not ready.';
+    if (err.status === 502 || err.status === 504 || err.status === 524) {
+      return 'Kernel warming, retrying…';
+    }
     return firstLine(err.message) || 'Request failed.';
   }
   if (err instanceof Error && err.message.trim()) {

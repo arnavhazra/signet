@@ -35,4 +35,18 @@ test.describe('Audit', () => {
     await expect(page.getByText('Remediation written')).toBeVisible();
     await expect(page.getByText('Agent proposed')).toHaveCount(0);
   });
+
+  test('default-load shows this visitor trail and the timeline axis', async ({ page }) => {
+    await readyConsole(page);
+    await page.goto('/audit');
+    await expect(page.getByTestId('audit-search')).toBeVisible();
+    const axis = page.getByRole('list', { name: 'Trace' });
+    await expect(axis).toBeVisible({ timeout: kernelTimeout() });
+    await expect(axis).toContainText('Ingest');
+    await expect(axis).toContainText('Halt');
+    await expect(axis).toContainText('Agent / human');
+    await expect(axis).toContainText('Written');
+    await expect(page.getByText('Session opened').first()).toBeVisible({ timeout: kernelTimeout() });
+    await expect(page.getByText('Waiting on human').first()).toBeVisible();
+  });
 });

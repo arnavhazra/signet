@@ -43,5 +43,11 @@ test.describe('Agent propose', () => {
     const mcp = page.getByTestId('agent-mcp');
     await expect(mcp).toContainText('https://signet-pearl-iota.vercel.app/mcp');
     await expect(mcp).toContainText('"type": "http"');
+    await expect(mcp).toContainText('"Authorization": "Bearer ');
+    await expect(mcp).not.toContainText('X-API-Key');
+    await expect(mcp).not.toContainText('demo-runtime-key');
+    const mcpText = await mcp.innerText();
+    const bearer = mcpText.match(/Bearer\s+([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/);
+    expect(bearer?.[1]).toBeTruthy();
   });
 });
