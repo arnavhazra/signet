@@ -46,9 +46,8 @@ The rail is a compact ops console: role radiogroup, queue badges, `⌘K` command
 
 | Path | Screen |
 | --- | --- |
-| `/` | Landing — governed action kernel; Open console / Start trial |
-| `/pricing` | Simulated tiers (Operator / Desk / Platform). No card is charged. |
-| `/signup`, `/login` | Simulated account; confirm token shown on page. No email is sent. |
+| `/` | Landing — governed action kernel; Open console |
+| `/pricing` | Get in touch — mailto contact only |
 | `/inbox` | Inbox — chips (`exception-review` / `nav-signoff` / `open` / `awaiting_checker` / `done`), New mismatch inject, account, CUSIP, book, custodian, server-derived delta, age, status |
 | `/sessions/:id` | Decision — title is account · CUSIP · workflow; UUID subtitle. Accept / reject / request more data. High `\|delta\|` requires a second checker approval. |
 | `/sessions/:id/replay` | Same account · CUSIP header. Immutable `workflowId` + `version`, stripped contract vs stored citations |

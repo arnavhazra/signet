@@ -1833,11 +1833,13 @@ h3 {
   font-size: 13px;
 }
 
-.mkt-tier__price {
-  margin: 8px 0 0;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--gold);
+.mkt-contact {
+  margin-top: 28px;
+  max-width: 36rem;
+}
+
+.mkt-contact .mono {
+  color: var(--ink);
 }
 
 .mkt-token {

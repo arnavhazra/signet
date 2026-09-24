@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { getDemoRuntime } from '@/api/client';
+import { getDemoRuntime, startDemoSession } from '@/api/client';
 import { useDemoSession } from '@/auth/DemoSession';
 import { useFocusTrap } from '@/lib/focusTrap';
 import { TOUR_STORAGE_KEY } from '@/lib/tourStorage';
@@ -323,17 +323,19 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const goToIndex = useCallback(
     (index: number, sid: string | null = sessionRef.current) => {
       if (index < 0 || advancingRef.current) return;
+      const resolved = sid ?? sessionRef.current ?? sessionFromPath(window.location.pathname);
+      if (resolved && resolved !== sessionRef.current) sessionRef.current = resolved;
       if (index >= STEPS.length) {
         advancingRef.current = true;
         setActive(false);
-        persist({ status: 'done', stepId: 'agent', sessionId: sid });
+        persist({ status: 'done', stepId: 'agent', sessionId: resolved });
         navigate(dropTourParam(location.pathname, location.search), { replace: true });
         return;
       }
       advancingRef.current = true;
       const nextStep = STEPS[index];
-      persist({ status: 'in_progress', stepId: nextStep.id, sessionId: sid });
-      navigate(withTourParam(hrefFor(nextStep, sid), nextStep.id), { replace: true });
+      persist({ status: 'in_progress', stepId: nextStep.id, sessionId: resolved });
+      navigate(withTourParam(hrefFor(nextStep, resolved), nextStep.id), { replace: true });
     },
     [location.pathname, location.search, navigate, persist],
   );
@@ -355,6 +357,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const fromPath = sessionFromPath(location.pathname);
     if (fromPath && fromPath !== sessionRef.current) {
+      sessionRef.current = fromPath;
       setSessionId(fromPath);
       persist({ sessionId: fromPath });
     }
@@ -365,6 +368,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       const detail = (event as CustomEvent<SignetSessionTourDetail>).detail;
       lastSessionRef.current = detail;
       if (detail.sessionId) {
+        sessionRef.current = detail.sessionId;
         setSessionId(detail.sessionId);
         persist({ sessionId: detail.sessionId });
       }
@@ -373,6 +377,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       const source = (event as CustomEvent<{ source?: string }>).detail?.source;
       if (source === 'tour') return;
       setActive(false);
+      sessionRef.current = null;
       setSessionId(null);
       setStepIndex(0);
       lastSessionRef.current = null;
@@ -406,12 +411,16 @@ export function TourProvider({ children }: { children: ReactNode }) {
         setMissing(false);
       }
       if (!current.signal) return;
-      if (!signalMet(current, window.location.pathname, lastSessionRef.current)) return;
+      const pathname = window.location.pathname;
+      if (!signalMet(current, pathname, lastSessionRef.current)) return;
       if (current.id === 'agent') {
         setHumanReady(true);
         return;
       }
-      goToIndex(stepIndexRef.current + 1, sessionRef.current);
+      // Prefer path session so high-delta → maker cannot race setState and land on /inbox?tour=maker.
+      const sid = sessionRef.current ?? sessionFromPath(pathname);
+      if (sid && sid !== sessionRef.current) sessionRef.current = sid;
+      goToIndex(stepIndexRef.current + 1, sid);
     };
     tick();
     const timer = window.setInterval(tick, 200);
@@ -426,12 +435,21 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const runStart = useCallback(async () => {
     lastSessionRef.current = null;
+    sessionRef.current = null;
     setSessionId(null);
     setStepIndex(0);
     setHumanReady(false);
     setMissing(false);
     missingSinceRef.current = null;
     setActive(true);
+    // Wait for the demo cookie before reset — Start tour from a cold /inbox must not 401.
+    try {
+      if (demo.status !== 'ready') {
+        await startDemoSession();
+      }
+    } catch {
+      /* resetImmediate still waits; surface via missing/resetBusy */
+    }
     navigate(withTourParam('/inbox', 'inbox'), { replace: true });
     try {
       await demo.resetImmediate();
@@ -466,7 +484,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const next = useCallback(() => {
     const current = STEPS[stepIndex];
-    let sid = sessionRef.current;
+    let sid = sessionRef.current ?? sessionFromPath(window.location.pathname);
     if (current.id === 'agent' && humanReady) {
       goToIndex(STEPS.length, sid);
       return;
@@ -480,6 +498,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
           el.getAttribute('data-session-id') ?? el.closest('[data-session-id]')?.getAttribute('data-session-id');
         if (fromEl) {
           sid = fromEl;
+          sessionRef.current = fromEl;
           setSessionId(fromEl);
         }
         actingRef.current = true;
@@ -501,7 +520,10 @@ export function TourProvider({ children }: { children: ReactNode }) {
       const sid =
         node.closest('[data-session-id]')?.getAttribute('data-session-id') ??
         queryTarget(current.target)?.getAttribute('data-session-id');
-      if (sid) setSessionId(sid);
+      if (sid) {
+        sessionRef.current = sid;
+        setSessionId(sid);
+      }
       if (current.signal) return;
       goToIndex(stepIndex + 1, sid ?? sessionRef.current);
     };

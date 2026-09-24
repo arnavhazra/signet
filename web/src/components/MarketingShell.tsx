@@ -14,13 +14,7 @@ export default function MarketingShell() {
           <NavLink to="/pricing" className={({ isActive }) => (isActive ? 'is-active' : undefined)}>
             Pricing
           </NavLink>
-          <NavLink to="/signup" className={({ isActive }) => (isActive ? 'is-active' : undefined)}>
-            Start trial
-          </NavLink>
-          <NavLink to="/login" className={({ isActive }) => (isActive ? 'is-active' : undefined)}>
-            Log in
-          </NavLink>
-          <Link className="btn btn--gold btn--small" to="/inbox">
+          <Link className="btn btn--gold btn--small" to="/inbox" data-testid="nav-open-console">
             Open console
           </Link>
         </nav>
@@ -29,9 +23,7 @@ export default function MarketingShell() {
         <Outlet />
       </main>
       <footer className="mkt__foot">
-        <p>
-          Simulated micro-SaaS shell around a real action kernel. No email is sent. No card is charged.
-        </p>
+        <p>Ops console around a real action kernel. Opening the console seeds a per-visitor demo org.</p>
       </footer>
     </div>
   );

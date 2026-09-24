@@ -20,29 +20,24 @@ test.describe('Product shell', () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Signet' })).toBeVisible();
     await expect(page.getByTestId('open-console')).toBeVisible();
+    await expect(page.getByTestId('start-trial')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /sign in|log in/i })).toHaveCount(0);
     await page.waitForTimeout(800);
     expect(inboxHits).toBe(0);
     await page.unroute('**/v1/inbox**');
   });
 
-  test('signup shows confirm token then reaches inbox with A-214', async ({ page }) => {
+  test('pricing is contact-only with mailto', async ({ page }) => {
     await waitForKernel(page);
-    await page.goto('/signup');
-    await expect(page.getByTestId('auth-form')).toBeVisible();
-    await page.getByTestId('auth-email').fill(`e2e-${Date.now()}@signet.test`);
-    await page.getByTestId('auth-org').fill('E2E Desk');
-    await page.getByTestId('auth-submit').click();
-    await expect(page.getByTestId('confirm-token')).toBeVisible({ timeout: kernelTimeout() });
-    const token = (await page.getByTestId('confirm-token').innerText()).trim();
-    expect(token.length).toBeGreaterThan(8);
-    await page.getByTestId('auth-confirm-btn').click();
-    await expect(page.getByText('Confirmed.')).toBeVisible({ timeout: kernelTimeout() });
-    await page.getByTestId('auth-open-console').click();
-    await expect(page.getByTestId('inbox-table')).toBeVisible({ timeout: kernelTimeout() });
-    await expect(page.getByTestId('reset-demo')).toBeEnabled({ timeout: kernelTimeout() });
-    await expect(highDeltaRow(page)).toHaveAttribute('data-account', 'A-214', {
-      timeout: kernelTimeout(),
-    });
+    await page.goto('/pricing');
+    await expect(page.getByTestId('pricing-contact')).toBeVisible();
+    await expect(page.getByTestId('pricing-mailto')).toHaveAttribute(
+      'href',
+      'mailto:work.arvhaz@gmail.com',
+    );
+    await expect(page.getByRole('link', { name: 'work.arvhaz@gmail.com', exact: true })).toBeVisible();
+    await expect(page.getByText(/\$|Stripe|checkout|Simulated/i)).toHaveCount(0);
+    await expect(page.getByTestId('checkout-modal')).toHaveCount(0);
   });
 
   test('settings plan flip is labeled simulated', async ({ page }) => {

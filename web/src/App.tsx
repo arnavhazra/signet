@@ -6,7 +6,6 @@ import Tour, { TourProvider } from '@/components/Tour';
 import AdminPage from '@/pages/AdminPage';
 import AgentPage from '@/pages/AgentPage';
 import AuditPage from '@/pages/AuditPage';
-import { LoginPage, SignupPage } from '@/pages/AuthAccountPage';
 import InboxPage from '@/pages/InboxPage';
 import LandingPage from '@/pages/LandingPage';
 import NotFoundPage from '@/pages/NotFoundPage';
@@ -32,8 +31,6 @@ export default function App() {
       <Route element={<MarketingShell />}>
         <Route path="/" element={<LandingPage />} />
         <Route path="/pricing" element={<PricingPage />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route path="/login" element={<LoginPage />} />
       </Route>
 
       <Route element={<ConsoleRoot />}>

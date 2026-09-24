@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { api } from '@/api/client';
 import type { DemoAccount, DemoPlan, DemoUsage } from '@/api/types';
 import { useDemoSession } from '@/auth/DemoSession';
@@ -129,7 +128,7 @@ export default function SettingsPage() {
             </div>
           </dl>
           <p className="help mt">
-            Missing email? <Link to="/signup">Start trial</Link> on this cookie.
+            Account fields upsert on this demo cookie from Settings. Console routes stay open without signup.
           </p>
         </section>
       ) : null}

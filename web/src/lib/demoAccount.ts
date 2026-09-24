@@ -2,24 +2,21 @@ import type { DemoPlan } from '@/api/types';
 
 const PENDING_PLAN_KEY = 'signet.pendingPlan';
 
-export const DEMO_PLANS: { id: DemoPlan; name: string; blurb: string; price: string }[] = [
+export const DEMO_PLANS: { id: DemoPlan; name: string; blurb: string }[] = [
   {
     id: 'operator',
     name: 'Operator',
     blurb: 'Single desk. Inbox, maker halt, audited write.',
-    price: '$0 simulated',
   },
   {
     id: 'desk',
     name: 'Desk',
     blurb: 'Maker-checker roles and agent propose on one org.',
-    price: '$0 simulated',
   },
   {
     id: 'platform',
     name: 'Platform',
     blurb: 'Admin catalog, shared publish stamp, full audit trail.',
-    price: '$0 simulated',
   },
 ];
 

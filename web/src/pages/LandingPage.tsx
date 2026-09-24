@@ -29,12 +29,9 @@ export default function LandingPage() {
         <Link className="btn btn--gold" to="/inbox" data-testid="open-console">
           Open console
         </Link>
-        <Link className="btn" to="/signup" data-testid="start-trial">
-          Start trial
-        </Link>
       </div>
       <p className="help mkt-land__note">
-        Simulated. Opening the console mints a per-visitor demo cookie and seeds this org’s inbox.
+        Opening the console mints a per-visitor demo cookie and seeds this org’s inbox. No sign-in.
       </p>
     </div>
   );

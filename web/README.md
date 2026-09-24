@@ -12,15 +12,14 @@ npm run dev
 
 Vite serves [http://127.0.0.1:5173](http://127.0.0.1:5173) and proxies `/v1`, `/health`, `/ready`, `/mcp`, and `/admin/workflows` to `http://127.0.0.1:8000`. Production builds use same origin (`VITE_API_URL` empty); Vercel rewrites those paths to FastAPI.
 
-`GET /v1/auth/demo` sets the HttpOnly demo cookie. Marketing routes (`/`, `/pricing`, `/signup`, `/login`) do not mint it. Opening `/inbox` (or submitting signup) starts the demo session. The SPA does not send `X-API-Key` or a baked admin JWT.
+`GET /v1/auth/demo` sets the HttpOnly demo cookie. Marketing routes (`/`, `/pricing`) do not mint it. Opening `/inbox` starts the demo session. The SPA does not send `X-API-Key` or a baked admin JWT.
 
 ## Routes
 
 | Path | Screen |
 | --- | --- |
-| `/` | Landing — governed action kernel; Open console / Start trial |
-| `/pricing` | Simulated Operator / Desk / Platform. No card is charged. |
-| `/signup`, `/login` | Email + org name; confirm token on page. No email is sent. |
+| `/` | Landing — governed action kernel; Open console |
+| `/pricing` | Get in touch — mailto contact only |
 | `/inbox` | Inbox — queue of exceptions; click a row |
 | `/sessions/:id` | Decision — SDUI renderer, citations, audit, accept / reject / more data / checker |
 | `/sessions/:id/replay` | Stored `workflowId` + `version`, stripped contract, citations |
@@ -29,7 +28,7 @@ Vite serves [http://127.0.0.1:5173](http://127.0.0.1:5173) and proxies `/v1`, `/
 | `/admin` | Shared catalog, lint, fetch stripped contract (demo cookie role `admin`) |
 | `/settings` | Profile, simulated billing, usage, reset |
 
-Nav (console): Inbox, Agent, Audit, Admin, Settings.
+Nav (console): Inbox, Agent, Audit, Admin, Settings. No sign-in gate.
 
 ## Environment
 
