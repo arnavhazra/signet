@@ -303,3 +303,31 @@ class DemoAuthResponse(BaseModel):
     role: str
     orgId: str
     accessToken: str
+
+
+DemoPlan = Literal["operator", "desk", "platform"]
+
+
+class DemoAccountBody(BaseModel):
+    email: str
+    orgName: str
+    plan: DemoPlan | None = None
+
+
+class DemoConfirmBody(BaseModel):
+    token: str
+
+
+class DemoAccountResponse(BaseModel):
+    orgId: str
+    email: str
+    orgName: str
+    plan: DemoPlan | str
+    confirmToken: str
+    confirmed: bool
+
+
+class DemoUsageResponse(BaseModel):
+    sessions: int
+    agentProposed: int
+    remediationsWritten: int

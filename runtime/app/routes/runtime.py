@@ -16,7 +16,11 @@ from app.schemas.api import (
     AdvanceBody,
     AppError,
     AuditListResponse,
+    DemoAccountBody,
+    DemoAccountResponse,
     DemoAuthResponse,
+    DemoConfirmBody,
+    DemoUsageResponse,
     ExceptionEvent,
     InboxListResponse,
     SessionSnapshot,
@@ -107,6 +111,74 @@ async def reset_demo(
     await request.app.state.limiter.hit(f"{client_ip(request)}:{principal.identity}", "demo-reset")
     result = await demo_tenant.reset_org_inbox(db, principal.org_id)
     return result
+
+
+@router.post("/demo/account", response_model=DemoAccountResponse)
+async def upsert_demo_account(
+    body: DemoAccountBody,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_db),
+):
+    settings: Settings = request.app.state.settings
+    if not settings.DEMO_MODE:
+        raise AppError("Demo account disabled", status_code=404, error="NOT_FOUND")
+    email = body.email.strip()
+    org_name = body.orgName.strip()
+    if not email or not org_name:
+        raise AppError("email and orgName are required", status_code=400, error="BAD_REQUEST")
+    row = await demo_tenant.upsert_demo_account(
+        db,
+        principal.org_id,
+        email=email,
+        org_name=org_name,
+        plan=body.plan,
+    )
+    return demo_tenant.demo_account_public(row)
+
+
+@router.post("/demo/account/confirm", response_model=DemoAccountResponse)
+async def confirm_demo_account(
+    body: DemoConfirmBody,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_db),
+):
+    settings: Settings = request.app.state.settings
+    if not settings.DEMO_MODE:
+        raise AppError("Demo account disabled", status_code=404, error="NOT_FOUND")
+    token = body.token.strip()
+    if not token:
+        raise AppError("token is required", status_code=400, error="BAD_REQUEST")
+    row = await demo_tenant.confirm_demo_account(db, principal.org_id, token)
+    return demo_tenant.demo_account_public(row)
+
+
+@router.get("/demo/account", response_model=DemoAccountResponse)
+async def get_demo_account(
+    request: Request,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_db),
+):
+    settings: Settings = request.app.state.settings
+    if not settings.DEMO_MODE:
+        raise AppError("Demo account disabled", status_code=404, error="NOT_FOUND")
+    row = await demo_tenant.get_demo_account(db, principal.org_id)
+    if row is None:
+        raise AppError("Demo account not found", status_code=404, error="NOT_FOUND")
+    return demo_tenant.demo_account_public(row)
+
+
+@router.get("/demo/usage", response_model=DemoUsageResponse)
+async def get_demo_usage(
+    request: Request,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_db),
+):
+    settings: Settings = request.app.state.settings
+    if not settings.DEMO_MODE:
+        raise AppError("Demo usage disabled", status_code=404, error="NOT_FOUND")
+    return await demo_tenant.usage_for_org(db, principal.org_id)
 
 
 @router.get("/audit", response_model=AuditListResponse, responses={200: openapi_example(AUDIT_EXAMPLE)})

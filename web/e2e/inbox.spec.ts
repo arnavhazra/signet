@@ -87,11 +87,13 @@ test.describe('Inbox', () => {
     await readyConsole(page);
     await expect(inboxRows(page)).toHaveCount(4);
     await page.getByTestId('inbox-inject').click();
-    await expect(page.getByRole('heading', { name: /A-100 · US0378331005/ })).toBeVisible({
+    await expect(page.getByRole('heading', { name: /A-[0-9A-F]+ · US0378331005/ })).toBeVisible({
       timeout: kernelTimeout(),
     });
+    const heading = await page.getByRole('heading').first().innerText();
+    const account = heading.split(' · ')[0];
     await goInbox(page);
     await expect(inboxRows(page)).toHaveCount(5);
-    await expect(page.locator('[data-testid="inbox-row"][data-account="A-100"]')).toHaveCount(2);
+    await expect(page.locator(`[data-testid="inbox-row"][data-account="${account}"]`)).toHaveCount(1);
   });
 });

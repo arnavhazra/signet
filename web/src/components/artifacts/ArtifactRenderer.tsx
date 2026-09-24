@@ -28,6 +28,7 @@ export type RenderableNode = {
 type Props = {
   node: RenderableNode;
   disabled?: boolean;
+  disableAccept?: boolean;
   submitLabel?: string;
   onSubmit: (value: JsonValue) => void;
 };
@@ -57,6 +58,7 @@ export function nodeFromStep(step: WorkflowStep): RenderableNode {
 export default function ArtifactRenderer({
   node,
   disabled,
+  disableAccept,
   submitLabel = 'Advance',
   onSubmit,
 }: Props) {
@@ -76,6 +78,7 @@ export default function ArtifactRenderer({
           config={config}
           actions={readActions(config)}
           disabled={disabled}
+          disableAccept={disableAccept}
           onSubmit={onSubmit}
         />
       </article>

@@ -7,7 +7,7 @@ export default function NotFoundPage() {
   usePageTitle('Not found');
 
   return (
-    <>
+    <div className="mkt-page" style={{ padding: '48px 24px', maxWidth: 720, margin: '0 auto' }}>
       <header className="stage__head">
         <div>
           <p className="kicker">404</p>
@@ -23,8 +23,11 @@ export default function NotFoundPage() {
           If you expected a session, open the inbox and pick a row.
         </p>
         <div className="row mt-lg">
-          <Link className="btn btn--gold" to="/">
+          <Link className="btn btn--gold" to="/inbox">
             Inbox
+          </Link>
+          <Link className="btn" to="/">
+            Home
           </Link>
           <Link className="btn" to="/agent">
             Agent
@@ -34,6 +37,6 @@ export default function NotFoundPage() {
           </a>
         </div>
       </section>
-    </>
+    </div>
   );
 }

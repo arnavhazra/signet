@@ -43,7 +43,7 @@ export default function ReplayPage() {
       <header className="stage__head">
         <div>
           <p className="kicker">
-            <Link to="/">Inbox</Link>
+            <Link to="/inbox">Inbox</Link>
             <span aria-hidden="true"> / </span>
             <Link to={`/sessions/${encodeURIComponent(id)}`}>Decision</Link>
             <span aria-hidden="true"> / </span>

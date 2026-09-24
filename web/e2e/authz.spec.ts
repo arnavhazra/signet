@@ -36,9 +36,7 @@ test.describe('Authz', () => {
     expect(propose.status()).toBe(403);
 
     await page.goto('/agent');
-    await page.getByTestId('agent-chip-write').click();
-    await expect(page.getByRole('alert')).toContainText(/Auditor role is read-only/i, {
-      timeout: kernelTimeout(),
-    });
+    await expect(page.getByTestId('agent-chip-write')).toBeDisabled();
+    await expect(page.getByTestId('agent-chip-read')).toBeEnabled();
   });
 });

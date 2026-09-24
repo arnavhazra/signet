@@ -48,7 +48,7 @@ export async function waitForKernel(page: Page): Promise<void> {
 
 export async function openInbox(page: Page): Promise<void> {
   await waitForKernel(page);
-  await page.goto('/');
+  await page.goto('/inbox');
   await expect(page.getByTestId('reset-demo')).toBeEnabled({ timeout: KERNEL_TIMEOUT_MS });
   await expect(page.getByTestId('inbox-table')).toBeVisible({ timeout: KERNEL_TIMEOUT_MS });
 }

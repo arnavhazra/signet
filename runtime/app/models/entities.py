@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON, Uuid
 
@@ -124,3 +124,19 @@ class ExceptionEventRow(Base):
             postgresql_where=text("idempotency_key IS NOT NULL"),
         ),
     )
+
+
+class DemoAccount(Base):
+    """Simulated signup profile — one row per visitor org_id. No email, no Stripe."""
+
+    __tablename__ = "demo_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    org_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    plan: Mapped[str] = mapped_column(String(32), nullable=False, default="operator")
+    confirm_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

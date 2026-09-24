@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { api, getLastRequestId, pingKernel, retryDemoSession, unwrapInbox } from '@/api/client';
-import type { InboxItem } from '@/api/types';
+import type { DemoAccount, InboxItem } from '@/api/types';
 import { DEMO_ROLES, useDemoSession } from '@/auth/DemoSession';
 import CommandPalette from '@/components/CommandPalette';
 import { toUserMessage } from '@/lib/errors';
@@ -17,6 +17,8 @@ export default function AppShell() {
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
+  const [account, setAccount] = useState<DemoAccount | null>(null);
+  const [footOpen, setFootOpen] = useState(false);
 
   const ping = useCallback(async () => {
     const started = performance.now();
@@ -40,6 +42,16 @@ export default function AppShell() {
     const items = unwrapInbox(data);
     setInboxItems(items);
     rememberInbox(items);
+  }, [demo.status]);
+
+  const refreshAccount = useCallback(async () => {
+    if (demo.status !== 'ready') return;
+    try {
+      const next = await api.getDemoAccount();
+      setAccount(next);
+    } catch {
+      setAccount(null);
+    }
   }, [demo.status]);
 
   useEffect(() => {
@@ -66,10 +78,15 @@ export default function AppShell() {
   }, [refreshInbox, location.pathname]);
 
   useEffect(() => {
+    void refreshAccount();
+  }, [refreshAccount, location.pathname]);
+
+  useEffect(() => {
     const onChange = () => {
       void refreshInbox().catch(() => {
         /* badges stay stale */
       });
+      void refreshAccount();
     };
     window.addEventListener('signet:demo-reset', onChange);
     window.addEventListener('signet:role', onChange);
@@ -77,7 +94,7 @@ export default function AppShell() {
       window.removeEventListener('signet:demo-reset', onChange);
       window.removeEventListener('signet:role', onChange);
     };
-  }, [refreshInbox]);
+  }, [refreshAccount, refreshInbox]);
 
   const warming = demo.status === 'pending' || demo.status === 'warming';
   const down = demo.status === 'failed' || (demo.status === 'ready' && health === 'bad');
@@ -97,6 +114,7 @@ export default function AppShell() {
         : null;
   const bannerTone = warming ? 'warn' : bannerText ? 'error' : null;
   const counts = inboxCounts(inboxItems);
+  const orgLabel = account?.orgName?.trim() || 'Demo org';
 
   return (
     <div className="shell">
@@ -104,7 +122,7 @@ export default function AppShell() {
         Skip to content
       </a>
       <aside className="rail">
-        <div className="brand">
+        <Link className="brand" to="/" data-testid="brand-home">
           <div className="brand__mark">
             <span className="brand__glyph" aria-hidden="true">
               S
@@ -112,10 +130,10 @@ export default function AppShell() {
             <p className="brand__title">Signet</p>
           </div>
           <p className="brand__sub">Governed action kernel</p>
-        </div>
+        </Link>
         <nav className="nav" aria-label="Primary">
           <div className="nav__label">Work</div>
-          <NavLink to="/" end className={({ isActive }) => (isActive ? 'nav__link is-active' : 'nav__link')}>
+          <NavLink to="/inbox" end className={({ isActive }) => (isActive ? 'nav__link is-active' : 'nav__link')}>
             Inbox
             {counts.open > 0 || counts.awaiting > 0 ? (
               <span className="nav__badges" aria-hidden="true">
@@ -141,12 +159,24 @@ export default function AppShell() {
           <NavLink to="/admin" className={({ isActive }) => (isActive ? 'nav__link is-active' : 'nav__link')}>
             Admin
           </NavLink>
+          <NavLink to="/settings" className={({ isActive }) => (isActive ? 'nav__link is-active' : 'nav__link')}>
+            Settings
+          </NavLink>
           <div className="nav__label nav__label--next">Reference</div>
           <a className="nav__link" href="/docs" target="_blank" rel="noreferrer">
             Docs
           </a>
         </nav>
-        <div className="rail__foot">
+        <button
+          className="btn btn--ghost rail__foot-toggle"
+          type="button"
+          aria-expanded={footOpen}
+          data-testid="rail-foot-toggle"
+          onClick={() => setFootOpen((prev) => !prev)}
+        >
+          {footOpen ? 'Hide console tools' : 'Console tools'}
+        </button>
+        <div className={`rail__foot${footOpen ? ' is-open' : ''}`}>
           <div className="syscard" data-testid="system-card">
             <div className="health" role="status">
               <span className={`led ${warming ? 'is-wait' : health === 'ok' && !down ? 'is-ok' : down ? 'is-bad' : ''}`} />
@@ -161,14 +191,19 @@ export default function AppShell() {
               <span className="mono" title={`v${meta.version}`}>
                 {meta.commit}
               </span>
-              <span title="pytest count at build">{meta.tests} tests</span>
+              <span title="pytest count at build">pytest at build · {meta.tests}</span>
             </p>
             <a className="syscard__link" href="/openapi.json">
               openapi.json
             </a>
           </div>
           <div className="identity">
+            <p className="identity__org" data-testid="rail-org">
+              {orgLabel}
+            </p>
+            <p className="identity__sim">Simulated demo</p>
             <p className="identity__meta">{demo.role}</p>
+            <p className="identity__hint">Demo impersonation — not SSO</p>
             <div className="role-switch" role="radiogroup" aria-label="Role">
               {DEMO_ROLES.map((item) => (
                 <button

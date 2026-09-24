@@ -2,7 +2,7 @@
 
 Signet is a **human-in-the-loop (HITL) workflow kernel**: versioned DAGs, server-driven UI (SDUI), and audit-first tools. An exception event starts a durable session; logic nodes run on the server; UI nodes halt for a human; the only writes go through an allowlisted tool gateway that inserts an audit row before any remediation. It is not a chatbot.
 
-Live: [signet-pearl-iota.vercel.app](https://signet-pearl-iota.vercel.app) — inbox, maker-checker, replay, auditor, admin, agent. Synthetic book-vs-custodian data only.
+Live: [signet-pearl-iota.vercel.app](https://signet-pearl-iota.vercel.app) — landing, inbox, maker-checker, replay, auditor, admin, agent. Synthetic book-vs-custodian data only. Signup and billing are simulated.
 
 Repo: [github.com/arnavhazra/signet](https://github.com/arnavhazra/signet)
 
@@ -42,18 +42,20 @@ Every response includes `X-Request-Id` (echo incoming or generate).
 
 ## Console
 
-| Path | Screen |
-| --- | --- |
 The rail is a compact ops console: role radiogroup, queue badges, `⌘K` command palette.
 
 | Path | Screen |
 | --- | --- |
-| `/` | Inbox — chips (`exception-review` / `nav-signoff` / `open` / `awaiting_checker` / `done`), New mismatch inject, account, CUSIP, book, custodian, server-derived delta, age, status |
+| `/` | Landing — governed action kernel; Open console / Start trial |
+| `/pricing` | Simulated tiers (Operator / Desk / Platform). No card is charged. |
+| `/signup`, `/login` | Simulated account; confirm token shown on page. No email is sent. |
+| `/inbox` | Inbox — chips (`exception-review` / `nav-signoff` / `open` / `awaiting_checker` / `done`), New mismatch inject, account, CUSIP, book, custodian, server-derived delta, age, status |
 | `/sessions/:id` | Decision — title is account · CUSIP · workflow; UUID subtitle. Accept / reject / request more data. High `\|delta\|` requires a second checker approval. |
 | `/sessions/:id/replay` | Same account · CUSIP header. Immutable `workflowId` + `version`, stripped contract vs stored citations |
 | `/audit` | Default-loads this visitor’s trail. Timeline: ingest → halt → agent/human → `remediation.written` |
-| `/admin` | Catalog, lint on preview/publish, stripped contract fetch |
+| `/admin` | Shared catalog, lint on preview/publish, stripped contract fetch |
 | `/agent` | Agent console — canned Write / Read / Deny, free-text prompt, typed proposal, policy verdict, audit row, curl / MCP. Contract tab uses visitor JWT Bearer, not an API key |
+| `/settings` | Simulated profile, billing plan flip, usage counts, reset demo |
 
 Seeded workflows: `exception-review` (maker-checker on large deltas) and `nav-signoff` (numeric override then approval). Same kernel, different definition JSON.
 

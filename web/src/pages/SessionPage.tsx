@@ -9,6 +9,7 @@ import {
   unwrapAudit,
 } from '@/api/client';
 import type { AuditEvent, JsonValue, SessionSnapshot } from '@/api/types';
+import { useDemoSession } from '@/auth/DemoSession';
 import ArtifactRenderer, { nodeFromSession } from '@/components/artifacts/ArtifactRenderer';
 import AuditLog from '@/components/AuditLog';
 import Citations from '@/components/Citations';
@@ -35,6 +36,7 @@ function emitSessionTour(snapshot: SessionSnapshot): void {
 
 export default function SessionPage() {
   const { id = '' } = useParams();
+  const demo = useDemoSession();
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [audit, setAudit] = useState<AuditEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +99,8 @@ export default function SessionPage() {
   const awaitingHuman = Boolean(snapshot?.currentNode);
   const terminal = snapshot ? isTerminalStatus(snapshot.status) : false;
   const checker = Boolean(snapshot?.awaitingChecker) || snapshot?.status === 'awaiting_checker';
+  const blockCheckerAccept = checker && demo.role === 'operator';
+  const blockAuditorWrite = demo.role === 'auditor';
 
   useEffect(() => {
     if (!id || !snapshot || awaitingHuman || terminal || retried.current) return;
@@ -168,7 +172,7 @@ export default function SessionPage() {
       <header className="stage__head">
         <div>
           <p className="kicker">
-            <Link to="/">Inbox</Link>
+            <Link to="/inbox">Inbox</Link>
             <span aria-hidden="true"> / </span>
             Decision
           </p>
@@ -203,10 +207,19 @@ export default function SessionPage() {
             {snapshot?.currentNode ? (
               <>
                 {checker ? <p className="help">Second control. Maker already accepted.</p> : null}
+                {blockCheckerAccept ? (
+                  <p className="help" data-testid="checker-accept-blocked">
+                    Operator cannot Accept on the checker node. Switch to checker (server 403 stays).
+                  </p>
+                ) : null}
+                {blockAuditorWrite ? (
+                  <p className="help">Auditor is read-only. Advance controls are disabled.</p>
+                ) : null}
                 <ArtifactRenderer
                   key={snapshot.currentNode.id}
                   node={nodeFromSession(snapshot.currentNode)}
-                  disabled={busy}
+                  disabled={busy || blockAuditorWrite}
+                  disableAccept={blockCheckerAccept}
                   onSubmit={(value) => void advance(value)}
                 />
               </>

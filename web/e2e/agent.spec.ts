@@ -18,7 +18,7 @@ test.describe('Agent propose', () => {
     await expect(page.getByTestId('agent-verdict')).toHaveAttribute('data-decision', 'auto_executed', {
       timeout: kernelTimeout(),
     });
-    await expect(page.getByTestId('agent-verdict')).toContainText('Auto executed');
+    await expect(page.getByTestId('agent-verdict')).toContainText('Read served');
   });
 
   test('unknown intent is denied with no session', async ({ page }) => {

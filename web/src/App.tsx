@@ -1,32 +1,54 @@
-import { Route, Routes } from 'react-router-dom';
+import { Outlet, Route, Routes } from 'react-router-dom';
 import { DemoSessionProvider } from '@/auth/DemoSession';
 import AppShell from '@/components/AppShell';
+import MarketingShell from '@/components/MarketingShell';
 import Tour, { TourProvider } from '@/components/Tour';
 import AdminPage from '@/pages/AdminPage';
 import AgentPage from '@/pages/AgentPage';
 import AuditPage from '@/pages/AuditPage';
+import { LoginPage, SignupPage } from '@/pages/AuthAccountPage';
 import InboxPage from '@/pages/InboxPage';
+import LandingPage from '@/pages/LandingPage';
 import NotFoundPage from '@/pages/NotFoundPage';
+import PricingPage from '@/pages/PricingPage';
 import ReplayPage from '@/pages/ReplayPage';
 import SessionPage from '@/pages/SessionPage';
+import SettingsPage from '@/pages/SettingsPage';
 
-export default function App() {
+function ConsoleRoot() {
   return (
     <DemoSessionProvider>
       <TourProvider>
         <Tour />
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route path="/" element={<InboxPage />} />
-            <Route path="/agent" element={<AgentPage />} />
-            <Route path="/sessions/:id" element={<SessionPage />} />
-            <Route path="/sessions/:id/replay" element={<ReplayPage />} />
-            <Route path="/audit" element={<AuditPage />} />
-            <Route path="/admin" element={<AdminPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Route>
-        </Routes>
+        <Outlet />
       </TourProvider>
     </DemoSessionProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route element={<MarketingShell />}>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/login" element={<LoginPage />} />
+      </Route>
+
+      <Route element={<ConsoleRoot />}>
+        <Route element={<AppShell />}>
+          <Route path="/inbox" element={<InboxPage />} />
+          <Route path="/agent" element={<AgentPage />} />
+          <Route path="/sessions/:id" element={<SessionPage />} />
+          <Route path="/sessions/:id/replay" element={<ReplayPage />} />
+          <Route path="/audit" element={<AuditPage />} />
+          <Route path="/admin" element={<AdminPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
+      </Route>
+
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
   );
 }

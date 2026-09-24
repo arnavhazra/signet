@@ -25,13 +25,18 @@ test.describe('Session', () => {
     await expect(page.getByText('Decision · checker')).toBeVisible();
   });
 
-  test('operator on the checker node is 403 until checker approves', async ({ page }) => {
+  test('operator on the checker node is blocked until checker approves', async ({ page }) => {
     await readyConsole(page);
     await highDeltaRow(page).click();
     await acceptAdjustment(page);
     await expect(page.getByText('Second control. Maker already accepted.')).toBeVisible();
-    await acceptAdjustment(page);
-    await expect(page.getByRole('alert')).toContainText(/checker role required/i);
+    await expect(page.getByTestId('checker-accept-blocked')).toBeVisible();
+    await expect(page.getByTestId('action-accept_adjustment')).toBeDisabled();
+    const sessionId = sessionIdFromUrl(page);
+    const blocked = await page.request.post(`/v1/sessions/${sessionId}/advance`, {
+      data: { inputs: { decision: 'accept_adjustment' } },
+    });
+    expect(blocked.status()).toBe(403);
     await expect(page.locator('[data-event-type="remediation.written"]')).toHaveCount(0);
     await switchRole(page, 'checker');
     await acceptAdjustment(page);

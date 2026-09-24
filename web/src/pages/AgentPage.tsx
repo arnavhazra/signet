@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from
 import { Link } from 'react-router-dom';
 import { api, getDemoAccessToken, getLastRequestId, sessionPathFromApproval, subscribeDemoRuntime } from '@/api/client';
 import type { AgentProposeRequest, AgentProposeResponse, JsonObject, JsonValue } from '@/api/types';
+import { useDemoSession } from '@/auth/DemoSession';
 import FactTable from '@/components/FactTable';
 import { toUserMessage } from '@/lib/errors';
 import { usePageTitle } from '@/lib/pageTitle';
@@ -36,6 +37,7 @@ const CHIPS: { id: string; label: string; testId: string; body: AgentProposeRequ
 ];
 
 export default function AgentPage() {
+  const demo = useDemoSession();
   const [tab, setTab] = useState<Tab>('console');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -48,8 +50,14 @@ export default function AgentPage() {
 
   useEffect(() => subscribeDemoRuntime(() => setAccessToken(getDemoAccessToken())), []);
 
+  const writeBlocked = demo.role === 'auditor';
+
   async function propose(body?: AgentProposeRequest) {
     const payload: AgentProposeRequest = body ?? { text: text.trim() || SAMPLE_TEXT };
+    if (writeBlocked && isWriteIntent(payload)) {
+      setError('Auditor role is read-only. Switch role to propose a write.');
+      return;
+    }
     setBusy(true);
     setError(null);
     setLastBody(payload);
@@ -131,21 +139,25 @@ export default function AgentPage() {
             <form className="panel" onSubmit={onSubmit}>
               <p className="panel__stamp">Prompt</p>
               <div className="row chips" role="group" aria-label="Canned intents">
-                {CHIPS.map((chip) => (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    className="btn btn--small"
-                    data-testid={chip.testId}
-                    disabled={busy}
-                    onClick={() => {
-                      setText(chip.prompt);
-                      void propose(chip.body);
-                    }}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
+                {CHIPS.map((chip) => {
+                  const chipBlocked = writeBlocked && chip.id === 'write';
+                  return (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      className="btn btn--small"
+                      data-testid={chip.testId}
+                      disabled={busy || chipBlocked}
+                      title={chipBlocked ? 'Auditor cannot propose writes' : undefined}
+                      onClick={() => {
+                        setText(chip.prompt);
+                        void propose(chip.body);
+                      }}
+                    >
+                      {chip.label}
+                    </button>
+                  );
+                })}
               </div>
               <p className="help mt">
                 Write = resolve_break A-214 · Read = list_exceptions · Deny = delete_everything
@@ -212,7 +224,7 @@ export default function AgentPage() {
                   ) : null}
                 </>
               ) : (
-                <p className="empty">requires_human · denied · auto_executed</p>
+                <p className="empty">requires_human · denied · Read served</p>
               )}
             </section>
           </div>
@@ -226,7 +238,7 @@ export default function AgentPage() {
           </section>
           <section className="panel">
             <p className="panel__stamp">MCP client</p>
-            <p className="help">Visitor JWT from GET /v1/auth/demo as Authorization Bearer. Cookie stays HttpOnly.</p>
+            <p className="help">This tab’s demo token as Authorization Bearer. Cookie stays HttpOnly.</p>
             <CopyBlock text={mcpConfig} testId="agent-mcp" />
           </section>
         </div>
@@ -297,11 +309,18 @@ function buildMcpConfig(accessToken: string | null): string {
   )}\n`;
 }
 
+function isWriteIntent(body: AgentProposeRequest): boolean {
+  const intent = (body.intent ?? '').trim().toLowerCase();
+  if (intent === 'resolve_break' || intent === 'adjust_position') return true;
+  const text = (body.text ?? '').toLowerCase();
+  return /resolve the book|adjust_position|resolve_break/.test(text);
+}
+
 function decisionLabel(decision: string | undefined): string {
   const key = (decision ?? '').trim().toLowerCase();
   if (key === 'requires_human') return 'Requires human';
   if (key === 'denied') return 'Denied';
-  if (key === 'auto_executed') return 'Auto executed';
+  if (key === 'auto_executed') return 'Read served';
   return decision?.trim() ? decision : '—';
 }
 

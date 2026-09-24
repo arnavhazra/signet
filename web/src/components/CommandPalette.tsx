@@ -66,10 +66,11 @@ export default function CommandPalette({ items }: Props) {
 
   const commands = useMemo<Command[]>(() => {
     const nav: Command[] = [
-      { id: 'inbox', group: 'Go', label: 'Inbox', hint: '/', run: () => go('/') },
+      { id: 'inbox', group: 'Go', label: 'Inbox', hint: '/inbox', run: () => go('/inbox') },
       { id: 'agent', group: 'Go', label: 'Agent', hint: '/agent', run: () => go('/agent') },
       { id: 'audit', group: 'Go', label: 'Audit', hint: '/audit', run: () => go('/audit') },
       { id: 'admin', group: 'Go', label: 'Admin', hint: '/admin', run: () => go('/admin') },
+      { id: 'settings', group: 'Go', label: 'Settings', hint: '/settings', run: () => go('/settings') },
     ];
     const roles: Command[] = DEMO_ROLES.map((role) => ({
       id: `role-${role}`,

@@ -183,19 +183,19 @@ function hrefFor(step: TourStep, sessionId: string | null): string {
   switch (step.id) {
     case 'inbox':
     case 'high-delta':
-      url.pathname = '/';
+      url.pathname = '/inbox';
       break;
     case 'maker':
     case 'checker-role':
     case 'checker-approve':
-      url.pathname = sessionId ? `/sessions/${encodeURIComponent(sessionId)}` : '/';
+      url.pathname = sessionId ? `/sessions/${encodeURIComponent(sessionId)}` : '/inbox';
       break;
     case 'audit':
       url.pathname = '/audit';
       if (sessionId) url.searchParams.set('session', sessionId);
       break;
     case 'replay':
-      url.pathname = sessionId ? `/sessions/${encodeURIComponent(sessionId)}/replay` : '/';
+      url.pathname = sessionId ? `/sessions/${encodeURIComponent(sessionId)}/replay` : '/inbox';
       break;
     case 'agent':
       url.pathname = '/agent';
@@ -432,7 +432,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
     setMissing(false);
     missingSinceRef.current = null;
     setActive(true);
-    navigate(withTourParam('/', 'inbox'), { replace: true });
+    navigate(withTourParam('/inbox', 'inbox'), { replace: true });
     try {
       await demo.resetImmediate();
       persist({ status: 'in_progress', stepId: 'inbox', sessionId: null });

@@ -58,7 +58,7 @@ export function DemoSessionProvider({ children }: { children: ReactNode }) {
         clearTourStorage();
         await resetDemoVisitor();
         window.dispatchEvent(new CustomEvent('signet:demo-reset', { detail: { source } }));
-        if (source === 'user') navigate('/');
+        if (source === 'user') navigate('/inbox');
       } finally {
         setResetBusy(false);
         setResetOpen(false);

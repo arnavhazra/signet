@@ -10,6 +10,9 @@ import type {
   AuditEvent,
   AuditQuery,
   CreateWorkflowRequest,
+  DemoAccount,
+  DemoAccountUpsert,
+  DemoUsage,
   ExceptionEvent,
   InboxItem,
   JsonObject,
@@ -512,6 +515,16 @@ export const api = {
   },
 
   resetDemo: () => request<unknown>('POST', '/v1/demo/reset', 'session'),
+
+  upsertDemoAccount: (body: DemoAccountUpsert) =>
+    request<DemoAccount>('POST', '/v1/demo/account', 'session', body),
+
+  confirmDemoAccount: (token: string) =>
+    request<DemoAccount>('POST', '/v1/demo/account/confirm', 'session', { token }),
+
+  getDemoAccount: () => request<DemoAccount>('GET', '/v1/demo/account', 'session'),
+
+  getDemoUsage: () => request<DemoUsage>('GET', '/v1/demo/usage', 'session'),
 };
 
 export function unwrapInbox(data: unknown): InboxItem[] {

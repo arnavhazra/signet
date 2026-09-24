@@ -3,9 +3,11 @@ import { useSearchParams } from 'react-router-dom';
 import {
   api,
   asJsonObject,
+  extractLintIssues,
   isSessionSnapshot,
   unwrapList,
 } from '@/api/client';
+import { useDemoSession } from '@/auth/DemoSession';
 import { toUserMessage } from '@/lib/errors';
 import { usePageTitle } from '@/lib/pageTitle';
 import type {
@@ -24,6 +26,8 @@ const EMPTY_DEFINITION = `{
 }`;
 
 export default function AdminPage() {
+  const demo = useDemoSession();
+  const isAdmin = demo.role === 'admin';
   const [params, setParams] = useSearchParams();
   const selectedId = params.get('workflow');
   const [workflows, setWorkflows] = useState<AdminWorkflow[]>([]);
@@ -32,6 +36,7 @@ export default function AdminPage() {
   const [definitionText, setDefinitionText] = useState(EMPTY_DEFINITION);
   const [inputsText, setInputsText] = useState('{}');
   const [preview, setPreview] = useState<unknown>(null);
+  const [lint, setLint] = useState<{ errors: string[]; warnings: string[] }>({ errors: [], warnings: [] });
   const [active, setActive] = useState<ActiveWorkflow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -40,26 +45,33 @@ export default function AdminPage() {
   usePageTitle('Admin');
 
   const refreshList = useCallback(async () => {
+    if (!isAdmin) {
+      setWorkflows([]);
+      setListReady(true);
+      return;
+    }
     const data = await api.listWorkflows();
     setWorkflows(unwrapList<AdminWorkflow>(data).filter((item) => typeof item.id === 'string'));
     setListReady(true);
     setError(null);
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
+    setListReady(false);
+    setPreview(null);
+    setLint({ errors: [], warnings: [] });
+    setActive(null);
+    if (!isAdmin) {
+      setWorkflows([]);
+      setListReady(true);
+      setError(null);
+      return;
+    }
     void refreshList().catch((err: unknown) => setError(toMessage(err)));
-  }, [refreshList]);
+  }, [isAdmin, refreshList]);
 
   useEffect(() => {
-    const onRole = () => {
-      void refreshList().catch((err: unknown) => setError(toMessage(err)));
-    };
-    window.addEventListener('signet:role', onRole);
-    return () => window.removeEventListener('signet:role', onRole);
-  }, [refreshList]);
-
-  useEffect(() => {
-    if (!selectedId) return;
+    if (!isAdmin || !selectedId) return;
     let cancelled = false;
     setError(null);
     void api
@@ -74,7 +86,7 @@ export default function AdminPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [isAdmin, selectedId]);
 
   function applyWorkflow(workflow: AdminWorkflow) {
     setSlug(typeof workflow.slug === 'string' ? workflow.slug : '');
@@ -112,6 +124,7 @@ export default function AdminPage() {
       const inputs = asJsonObject(parseJson(inputsText, 'preview inputs'));
       const result = await api.previewWorkflow(selectedId, { inputs });
       setPreview(result);
+      setLint(extractLintIssues(result));
     } catch (err) {
       setError(toMessage(err));
     } finally {
@@ -128,11 +141,15 @@ export default function AdminPage() {
     setError(null);
     setNotice(null);
     try {
-      await api.publishWorkflow(selectedId);
+      const result = await api.publishWorkflow(selectedId);
+      setLint(extractLintIssues(result));
       setNotice('Published. Runtime clients see the stripped contract.');
       await refreshList();
     } catch (err) {
       setError(toMessage(err));
+      if (err && typeof err === 'object' && 'body' in err) {
+        setLint(extractLintIssues((err as { body: unknown }).body));
+      }
     } finally {
       setBusy(false);
     }
@@ -157,6 +174,33 @@ export default function AdminPage() {
 
   const previewNodes = nodesFromPreview(preview);
 
+  if (!isAdmin) {
+    return (
+      <>
+        <header className="stage__head">
+          <div>
+            <p className="kicker">Admin console</p>
+            <h1>Workflow publish</h1>
+            <p className="lede">Catalog is admin-only. Demo impersonation — not SSO.</p>
+          </div>
+        </header>
+        <section className="panel" data-testid="admin-role-gate">
+          <p className="panel__stamp">Shared catalog</p>
+          <p className="empty">Switch to admin to load the shared workflow catalog.</p>
+          <button
+            className="btn btn--gold mt"
+            type="button"
+            data-testid="admin-switch-cta"
+            disabled={demo.roleBusy || demo.status !== 'ready'}
+            onClick={() => void demo.switchRole('admin')}
+          >
+            Switch to admin
+          </button>
+        </section>
+      </>
+    );
+  }
+
   return (
     <>
       <header className="stage__head">
@@ -180,7 +224,8 @@ export default function AdminPage() {
       <div className="grid-2">
         <div className="stack">
           <section className="panel">
-            <p className="panel__stamp">Catalog</p>
+            <p className="panel__stamp">Shared catalog</p>
+            <p className="help">Global catalog for this demo. Not org-scoped.</p>
             {!listReady ? (
               <p className="empty">
                 <span className="spin" aria-hidden="true" /> Loading catalog…
@@ -263,6 +308,30 @@ export default function AdminPage() {
                 Preview
               </button>
             </div>
+            {lint.errors.length || lint.warnings.length ? (
+              <div className="lint mt" data-testid="admin-lint">
+                {lint.errors.length ? (
+                  <div>
+                    <p className="panel__stamp">Lint errors</p>
+                    <ul>
+                      {lint.errors.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {lint.warnings.length ? (
+                  <div>
+                    <p className="panel__stamp">Lint warnings</p>
+                    <ul>
+                      {lint.warnings.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </section>
         </div>
 

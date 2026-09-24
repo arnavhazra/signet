@@ -6,10 +6,22 @@ type Props = {
   config: JsonObject;
   actions: ApprovalAction[];
   disabled?: boolean;
+  disableAccept?: boolean;
   onSubmit: (value: JsonValue) => void;
 };
 
-export default function ApprovalCard({ config, actions, disabled, onSubmit }: Props) {
+function isAcceptAction(action: ApprovalAction, index: number): boolean {
+  const value = String(actionValue(action, index)).toLowerCase();
+  const variant = (action.variant ?? action.id ?? '').toString().toLowerCase();
+  return (
+    value.includes('accept') ||
+    value.includes('approve') ||
+    variant.includes('accept') ||
+    variant.includes('approve')
+  );
+}
+
+export default function ApprovalCard({ config, actions, disabled, disableAccept, onSubmit }: Props) {
   const facts = readPresentationFacts(config);
   const summary = readSummary(config);
 
@@ -22,7 +34,7 @@ export default function ApprovalCard({ config, actions, disabled, onSubmit }: Pr
           <button
             type="button"
             className="btn btn--gold"
-            disabled={disabled}
+            disabled={disabled || disableAccept}
             onClick={() => onSubmit('submitted')}
           >
             Advance
@@ -36,13 +48,15 @@ export default function ApprovalCard({ config, actions, disabled, onSubmit }: Pr
                 : variant.includes('approve') || variant.includes('accept')
                   ? 'is-approve'
                   : '';
+            const acceptBlocked = Boolean(disableAccept && isAcceptAction(action, index));
             return (
               <button
                 key={String(action.id ?? actionValue(action, index))}
                 type="button"
                 className={`btn ${tone}`}
-                disabled={disabled}
+                disabled={disabled || acceptBlocked}
                 data-testid={`action-${String(actionValue(action, index))}`}
+                title={acceptBlocked ? 'Operator cannot Accept on checker node' : undefined}
                 onClick={() => onSubmit(actionValue(action, index))}
               >
                 {actionLabel(action, index)}

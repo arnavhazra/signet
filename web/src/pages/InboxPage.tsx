@@ -104,11 +104,16 @@ export default function InboxPage() {
 
   async function injectMismatch() {
     if (inFlight.current) return;
+    if (demo.role === 'auditor') {
+      setError('Auditor role is read-only. Switch role to inject.');
+      return;
+    }
     inFlight.current = true;
     setBusy(true);
     setError(null);
+    const accountId = `A-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const event: ExceptionEvent = {
-      accountId: 'A-100',
+      accountId,
       securityId: 'US0378331005',
       bookQty: 10000,
       custodianQty: 9850,
@@ -144,6 +149,7 @@ export default function InboxPage() {
 
   const tourRowId = pickTourRow(items);
   const showResetCta = ready && demo.status === 'ready' && (items.length === 0 || !tourRowId);
+  const injectDisabled = busy || demo.status !== 'ready' || demo.role === 'auditor';
 
   return (
     <>
@@ -164,7 +170,8 @@ export default function InboxPage() {
             type="button"
             data-testid="inbox-inject"
             onClick={() => void injectMismatch()}
-            disabled={busy || demo.status !== 'ready'}
+            disabled={injectDisabled}
+            title={demo.role === 'auditor' ? 'Auditor cannot inject' : undefined}
           >
             New mismatch
           </button>
@@ -209,7 +216,8 @@ export default function InboxPage() {
             type="button"
             data-testid="inbox-inject-cta"
             onClick={() => void injectMismatch()}
-            disabled={busy || demo.status !== 'ready'}
+            disabled={injectDisabled}
+            title={demo.role === 'auditor' ? 'Auditor cannot inject' : undefined}
           >
             New mismatch
           </button>

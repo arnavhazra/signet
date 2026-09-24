@@ -235,3 +235,26 @@ export type AgentProposeResponse = {
   auditEventId: string | null;
   proposal: AgentProposal;
 };
+
+export type DemoPlan = 'operator' | 'desk' | 'platform';
+
+export type DemoAccount = {
+  orgId: string;
+  email: string;
+  orgName: string;
+  plan: DemoPlan;
+  confirmToken: string;
+  confirmed: boolean;
+};
+
+export type DemoAccountUpsert = {
+  email: string;
+  orgName: string;
+  plan?: DemoPlan;
+};
+
+export type DemoUsage = {
+  sessions: number;
+  agentProposed: number;
+  remediationsWritten: number;
+};
